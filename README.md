@@ -1,4 +1,4 @@
-# Geode Networking Libs
+# Networking Libs
 
 Build curl (8.8.0) with
 - TLS (BoringSSL)
