@@ -7,3 +7,6 @@
 [submodule "nghttp2"]
 	path = nghttp2
 	url = https://github.com/nghttp2/nghttp2
+[submodule "ngtcp2"]
+	path = ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2
