@@ -11,9 +11,15 @@ Build curl (8.8.0) with
 git clone --recurse-submodules -j$(nproc) https://github.com/kynex7510/geode_net_libs
 ```
 
-## Patching curl
+## Build notes
 
-BoringSSL links to `libc++`, the `CMakeFiles.txt` from curl must be modified to allow tests to pass.
+### Windows build
+
+The powershell script must be launched from a VS dev command line.
+
+### Patching curl
+
+When compiling for android BoringSSL links to `libc++`. `CMakeFiles.txt` from curl must be modified to allow tests to pass.
 
 1. `project(CURL C)` -> `project(CURL C CXX)`
 2. Add `include(CheckCXXSymbolExists)`
