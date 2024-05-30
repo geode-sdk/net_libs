@@ -8,7 +8,7 @@ Build curl (8.8.0) with
 ## Cloning
 
 ```
-git clone --recurse-submodules -j$(nproc) https://github.com/kynex7510/geode_net_libs
+git clone --recurse-submodules -j$(nproc) https://github.com/geode-sdk/net_libs
 ```
 
 ## Build notes
