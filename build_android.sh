@@ -1,9 +1,15 @@
 #!/bin/bash
 
 ROOT=$PWD
-ABI="arm64-v8a"
-#ABI="armeabi-v7a"
 SDK_VER=23
+
+# Uncomment a set of variables to compile for 32bit or 64bit
+
+#ABI="armeabi-v7a"
+#BUILD_PATH="$ROOT/build/android32"
+#OUT_PATH="$ROOT/out/android32"
+
+ABI="arm64-v8a"
 BUILD_PATH="$ROOT/build/android64"
 OUT_PATH="$ROOT/out/android64"
 
@@ -74,7 +80,7 @@ cd "$BUILD_PATH/curl"
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$OUT_PATH" -DBUILD_CURL_EXE=OFF \
     -DCURL_USE_OPENSSL=ON -DOPENSSL_INCLUDE_DIR="$OUT_PATH/include" \
     -DOPENSSL_CRYPTO_LIBRARY="$OUT_PATH/lib/libcrypto.a" -DOPENSSL_SSL_LIBRARY="$OUT_PATH/lib/libssl.a" \
-    -DOPENSSL_LIBRARIES="$OUT_PATH/lib/libcrypto.a;$OUT_PATH/lib/libssl.a" -DCMAKE_REQUIRED_LINK_OPTIONS="-lc++" \
+    -DOPENSSL_LIBRARIES="$OUT_PATH/lib/libcrypto.a;$OUT_PATH/lib/libssl.a" \
     -DUSE_NGHTTP2=ON -DNGHTTP2_INCLUDE_DIR="$OUT_PATH/include" -DNGHTTP2_LIBRARY="$OUT_PATH/lib/libnghttp2.a" \
     -DUSE_NGTCP2=ON -DNGTCP2_INCLUDE_DIR="$OUT_PATH/include" -DNGTCP2_LIBRARY="$OUT_PATH/lib/libngtcp2.a" \
     -Dngtcp2_crypto_boringssl_LIBRARY="$OUT_PATH/lib/libngtcp2_crypto_boringssl.a" \
