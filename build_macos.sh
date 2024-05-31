@@ -4,6 +4,8 @@ ROOT=$PWD
 BUILD_PATH="$ROOT/build/macos"
 OUT_PATH="$ROOT/out/macos"
 
+export MACOSX_DEPLOYMENT_TARGET="10.15"
+
 # Remove previous output files
 
 rm -rf "$OUT_PATH"
@@ -64,7 +66,7 @@ mkdir -p "$BUILD_PATH/curl"
 cd "$BUILD_PATH/curl"
 
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$OUT_PATH" -DBUILD_CURL_EXE=OFF \
-    -DCURL_USE_OPENSSL=ON -DOPENSSL_INCLUDE_DIR="$OUT_PATH/include" \
+    -DCURL_DISABLE_LDAP=ON -DCURL_USE_OPENSSL=ON -DOPENSSL_INCLUDE_DIR="$OUT_PATH/include" \
     -DOPENSSL_CRYPTO_LIBRARY="$OUT_PATH/lib/libcrypto.a" -DOPENSSL_SSL_LIBRARY="$OUT_PATH/lib/libssl.a" \
     -DOPENSSL_LIBRARIES="$OUT_PATH/lib/libcrypto.a;$OUT_PATH/lib/libssl.a" \
     -DUSE_NGHTTP2=ON -DNGHTTP2_INCLUDE_DIR="$OUT_PATH/include" -DNGHTTP2_LIBRARY="$OUT_PATH/lib/libnghttp2.a" \
