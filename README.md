@@ -19,7 +19,7 @@ The powershell script must be launched from a VS dev command line.
 
 ### Patching curl
 
-When compiling for android BoringSSL links to `libc++`. `CMakeFiles.txt` from curl must be modified to allow tests to pass.
+BoringSSL links to `libc++` when compiling for android, macOS. `CMakeFiles.txt` from curl must be modified to allow tests to pass.
 
 1. `project(CURL C)` -> `project(CURL C CXX)`
 2. Add `include(CheckCXXSymbolExists)`
