@@ -4,6 +4,7 @@ ROOT=$PWD
 BUILD_PATH="$ROOT/build/macos"
 OUT_PATH="$ROOT/out/macos"
 
+export CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
 export MACOSX_DEPLOYMENT_TARGET="10.15"
 
 # Remove previous output files
