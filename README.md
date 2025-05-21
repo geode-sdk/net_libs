@@ -1,9 +1,9 @@
 # Networking Libs
 
 Build curl (8.8.0) with
-- TLS (BoringSSL)
+- TLS (BoringSSL / Schannel on Windows)
 - HTTP2 (nghttp2 1.62.1)
-- HTTP3 (ngtcp2 1.5.0, nghttp3 1.3.0)
+- HTTP3 (ngtcp2 1.5.0, nghttp3 1.3.0) (only Android/MacOS)
 
 ## Cloning
 
