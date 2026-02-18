@@ -1,0 +1,424 @@
+from dataclasses import dataclass, field
+from pathlib import Path
+from subprocess import Popen, PIPE, STDOUT
+from enum import Enum, auto
+import traceback
+import argparse
+import requests
+import shutil
+import time
+import os
+
+CURL_REPO = "https://github.com/curl/curl"
+CURL_TAG = "curl-8_18_0"
+CARES_REPO = "https://github.com/c-ares/c-ares"
+CARES_TAG = "2870f6b"
+NGHTTP2_REPO = "https://github.com/nghttp2/nghttp2"
+NGHTTP2_TAG = "v1.68.0"
+NGTCP2_REPO = "https://github.com/ngtcp2/ngtcp2"
+NGTCP2_TAG = "v1.20.0"
+NGHTTP3_REPO = "https://github.com/ngtcp2/nghttp3"
+NGHTTP3_TAG = "v1.15.0"
+ZSTD_REPO = "https://github.com/facebook/zstd"
+ZSTD_TAG = "v1.5.7"
+RUSTLS_REPO = "https://github.com/rustls/rustls-ffi"
+RUSTLS_TAG = "v0.15.0"
+
+ANDROID_SDK_VERSION = 23
+
+REPOS = [
+    (CURL_REPO, CURL_TAG),
+    (CARES_REPO, CARES_TAG),
+    (NGHTTP2_REPO, NGHTTP2_TAG),
+    (NGTCP2_REPO, NGTCP2_TAG),
+    (NGHTTP3_REPO, NGHTTP3_TAG),
+    (ZSTD_REPO, ZSTD_TAG),
+    (RUSTLS_REPO, RUSTLS_TAG),
+]
+
+verified_repos = []
+
+class Color:
+    RED    = "\033[31m"
+    GREEN  = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE   = "\033[34m"
+    MAGENTA= "\033[35m"
+    CYAN   = "\033[36m"
+    RESET  = "\033[0m"
+
+def cprint(text, color):
+    print(f"{color}{text}{Color.RESET}")
+
+class TlsBackend(Enum):
+    OpenSSL = auto()
+    SChannel = auto()
+    Rustls = auto()
+
+    @classmethod
+    def from_str(cls, s: str) -> TlsBackend | None:
+        match s.lower():
+            case "none":
+                return None
+            case "openssl":
+                return cls.OpenSSL
+            case "schannel":
+                return cls.SChannel
+            case "rustls":
+                return cls.Rustls
+            case _:
+                raise ValueError(f"Unsupported TLS backend: {s}")
+
+class BuildException(Exception):
+    pass
+
+@dataclass
+class BuildConfig:
+    tls: TlsBackend | None = None
+    use_ares: bool = True
+    platform: str = ""
+    profile: str = "Release"
+    cmake_args: list[str] = field(default_factory=list)
+    cmake_env: dict[str, str] = field(default_factory=dict)
+    ndk_path: Path | None = None
+    generator: str = ""
+    output_path: Path = field(default_factory=Path)
+    build_dir: Path = field(default_factory=Path)
+
+    @classmethod
+    def for_platform(cls, p: str) -> BuildConfig:
+        tls: TlsBackend | None = None
+        args = []
+        env = {}
+
+        p = p.lower()
+        match p:
+            case "windows":
+                tls = TlsBackend.SChannel
+            case "android32" | "android64":
+                tls = TlsBackend.OpenSSL
+                args.append(f"-DANDROID_ABI={'arm64-v8a' if p == 'android64' else 'armeabi-v7a'}")
+                args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
+            case "ios" | "macos":
+                tls = TlsBackend.Rustls
+            case _:
+                raise ValueError(f"Unsupported platform: {p}")
+
+        return cls(tls, True, p, "Release", args, env)
+
+    def target_triple(self) -> str:
+        match self.platform:
+            case "windows":
+                return "x86_64-pc-windows-msvc"
+            case "android32":
+                return "armv7-linux-androideabi"
+            case "android64":
+                return "aarch64-linux-android"
+            case "ios":
+                return "aarch64-apple-ios"
+            case "macos":
+                return "aarch64-apple-darwin"
+            case _:
+                raise ValueError(f"Unsupported platform: {self.platform}")
+
+def clone_package(repo: str, tag: str, path: Path):
+    p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
+    stdout, stderr = p.communicate()
+    if p.returncode != 0:
+        raise BuildException(f"Failed to clone {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
+
+def verify_package(repo: str, tag: str, path: Path):
+    if not path.exists() or not (path / ".git").exists():
+        cprint(f"Cloning {repo} ({tag})...", Color.CYAN)
+        clone_package(repo, tag, path)
+
+    # fetch & update to the right version
+    Popen(["git", "fetch"], cwd=path, stdout=PIPE, stderr=PIPE).wait()
+    p = Popen(["git", "checkout", tag], cwd=path, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = p.communicate()
+    if p.returncode != 0:
+        raise BuildException(f"Failed to checkout {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
+
+def verify_packages(parent: Path, config: BuildConfig):
+    global verified_repos
+
+    for (repo, tag) in REPOS:
+        if repo in verified_repos:
+            continue
+
+        name = repo.rpartition("/")[-1]
+        is_enabled = True
+        match name:
+            case "rustls-ffi":
+                is_enabled = config.tls == TlsBackend.Rustls
+            case "c-ares":
+                is_enabled = config.use_ares
+
+        if not is_enabled:
+            continue
+
+        path = parent / name
+        verify_package(repo, tag, path)
+        verified_repos.append(repo)
+
+def find_android_toolchain(ndk_root: Path) -> Path:
+    toolchains = list((ndk_root / "toolchains").glob("llvm/prebuilt/*"))
+    if not toolchains:
+        raise BuildException(f"No Android toolchains found in {ndk_root / 'toolchains/llvm/prebuilt'}!")
+
+    if len(toolchains) > 1:
+        cprint(f"Warning: Multiple Android toolchains found in {ndk_root / 'toolchains/llvm/prebuilt'}! Using the first one: {toolchains[0]}", Color.YELLOW)
+
+    return toolchains[0]
+
+def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
+    # check if cargo is installed
+    p = Popen(["cargo", "--version"], stdout=PIPE, stderr=PIPE).wait()
+    if p != 0:
+        raise BuildException("Cargo is not installed or not found in PATH!")
+
+    # check if cargo-c is installed
+    p = Popen(["cargo", "capi"], stdout=PIPE, stderr=PIPE).wait()
+    if p != 0:
+        raise BuildException("cargo-c is not installed! Please install it with `cargo install cargo-c`")
+
+    args = [
+        "cargo", "capi", "install",
+        "--prefix", install_dir,
+        "--library-type", "staticlib",
+        "--target", config.target_triple(),
+        "--no-default-features",
+        "--features=ring"
+    ]
+    if config.profile != "Debug":
+        args.append("--release")
+
+    env = os.environ.copy()
+    env.update(config.cmake_env)
+    if "android" in config.platform:
+        assert config.ndk_path and config.ndk_path.exists(), "NDK path must be specified and exist for Android builds!"
+        toolchain = find_android_toolchain(config.ndk_path)
+
+        triple = config.target_triple()
+        llvmtriple = triple.replace("armv7", "armv7a")
+        env["CC"] = str(toolchain / "bin" / f"{llvmtriple}{ANDROID_SDK_VERSION}-clang")
+        env["CXX"] = str(toolchain / "bin" / f"{llvmtriple}{ANDROID_SDK_VERSION}-clang++")
+        env["AR"] = str(toolchain / "bin" / "llvm-ar")
+        env["CARGO_TARGET_" + triple.upper().replace("-", "_") + "_LINKER"] = env["CC"]
+
+    r = Popen(args, cwd=path, stderr=STDOUT, env=env).wait()
+    if r != 0:
+        raise BuildException(f"Failed to build rustls!")
+
+def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
+    build_dir = path / "build"
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+    build_dir.mkdir(parents=True)
+
+    cmake_args = config.cmake_args + (extra_args if extra_args else [])
+    cmake_args.append(f"-DCMAKE_INSTALL_PREFIX={install_dir}")
+    cmake_args.append(f"-DCMAKE_BUILD_TYPE={config.profile}")
+    if config.generator:
+        cmake_args.extend(("-G", config.generator))
+    cmake_args.extend(("-S", str(path)))
+    cmake_args.extend(("-B", str(build_dir)))
+
+    cmake = shutil.which("cmake") or "cmake"
+    env = os.environ.copy()
+    env.update(config.cmake_env)
+
+    cprint(f"Configuring {path.name}..", Color.BLUE)
+    print(f"{cmake} {' '.join(cmake_args)}")
+    r = Popen(
+        [cmake] + cmake_args,
+        env=env,
+        stderr=STDOUT
+    ).wait()
+    if r != 0:
+        raise BuildException(f"CMake configuration failed for {path.name}!")
+
+    # build
+    cprint(f"Building {path.name}..", Color.BLUE)
+    r = Popen(
+        [cmake, "--build", str(build_dir), "--target", "install", "--config", config.profile, "--parallel"],
+        env=env,
+        stderr=STDOUT
+    ).wait()
+    if r != 0:
+        raise BuildException(f"Build failed for {path.name}!")
+
+
+checked_packages = False
+def build(config: BuildConfig):
+    global checked_packages
+    cprint(f"Building for {config.platform} (TLS: {config.tls.name if config.tls else 'none'})", Color.GREEN)
+
+    src_dir = config.build_dir / "sources"
+    out_dir = config.output_path
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not checked_packages:
+        print(f"Verifying or installing packages...")
+        verify_packages(src_dir, config)
+        checked_packages = True
+
+    curl_args = []
+    def add_linked_library(name: str, path: Path):
+        curl_args.append(f"-D{name.upper()}_INCLUDE_DIR={path / 'include'}")
+        if config.platform == "windows":
+            libname = f"{name}.lib"
+        else:
+            libname = f"lib{name}.a"
+        curl_args.append(f"-D{name.upper()}_LIBRARY={path / 'lib' / libname}")
+
+
+    # build the tls library
+    if config.tls != TlsBackend.OpenSSL:
+        curl_args.append("-DCURL_USE_OPENSSL=OFF")
+
+    if config.tls is None:
+        curl_args.append("-DCURL_ENABLE_SSL=OFF")
+    else:
+        curl_args.append("-DCURL_ENABLE_SSL=ON")
+
+    match config.tls:
+        case TlsBackend.Rustls:
+            build_rustls(src_dir / "rustls-ffi", out_dir / "rustls", config)
+            curl_args.append("-DCURL_USE_RUSTLS=ON")
+            curl_args.append("-DHAVE_RUSTLS_SUPPORTED_HPKE=ON")
+            add_linked_library("rustls", out_dir / "rustls")
+
+        case TlsBackend.SChannel:
+            curl_args.append("-DCURL_USE_SCHANNEL=ON")
+
+        case TlsBackend.OpenSSL:
+            # TODO: currently we don't build openssl.
+            cprint("We hope you have OpenSSL already installed..", Color.YELLOW)
+            curl_args.append("-DCURL_USE_OPENSSL=ON")
+
+    # build c-ares
+    if config.use_ares:
+        build_one(src_dir / "c-ares", out_dir / "c-ares", config, [
+            "-DCARES_STATIC=ON",
+            "-DCARES_SHARED=OFF",
+            "-DCARES_BUILD_TESTS=OFF",
+        ])
+        curl_args.append("-DENABLE_ARES=ON")
+        add_linked_library("cares", out_dir / "c-ares")
+
+    # build zstd
+    build_one(src_dir / "zstd" / "build" / "cmake", out_dir / "zstd", config, [
+        "-DZSTD_BUILD_SHARED=OFF",
+        "-DZSTD_BUILD_STATIC=ON",
+        "-DZSTD_BUILD_PROGRAMS=OFF",
+        "-DZSTD_BUILD_TESTS=OFF",
+        "-DZSTD_BUILD_CONTRIB=OFF",
+        "-DZSTD_MULTITHREAD_SUPPORT=OFF",
+        "-DZSTD_LEGACY_SUPPORT=OFF",
+    ])
+    curl_args.append("-DCURL_ZSTD=ON")
+    add_linked_library("zstd", out_dir / "zstd")
+
+    # build nghttp2
+    build_one(src_dir / "nghttp2", out_dir / "nghttp2", config, [
+        "-DENABLE_LIB_ONLY=ON",
+        "-DENABLE_EXAMPLES=OFF",
+        "-DBUILD_TESTING=OFF",
+        "-DBUILD_SHARED_LIBS=OFF",
+        "-DBUILD_STATIC_LIBS=ON"
+    ])
+    curl_args.append("-DUSE_NGHTTP2=ON")
+    add_linked_library("nghttp2", out_dir / "nghttp2")
+
+    # build curl
+    build_one(src_dir / "curl", out_dir / "curl", config, curl_args + [
+        "-DCURL_DISABLE_FTP=ON",
+        "-DCURL_DISABLE_TELNET=ON",
+        "-DCURL_DISABLE_LDAP=ON",
+        "-DCURL_DISABLE_DICT=ON",
+        "-DCURL_DISABLE_TFTP=ON",
+        "-DCURL_DISABLE_GOPHER=ON",
+        "-DCURL_DISABLE_POP3=ON",
+        "-DCURL_DISABLE_IMAP=ON",
+        "-DCURL_DISABLE_SMB=ON",
+        "-DCURL_DISABLE_SMTP=ON",
+        "-DCURL_DISABLE_IPFS=ON",
+        "-DCURL_DISABLE_RTSP=ON",
+        "-DCURL_DISABLE_MQTT=ON",
+        "-DCURL_DISABLE_WEBSOCKETS=ON",
+        "-DCURL_USE_LIBSSH2=OFF",
+        "-DCURL_USE_LIBSSH=OFF",
+        "-DCURL_USE_LIBPSL=OFF",
+        "-DBUILD_CURL_EXE=OFF",
+        "-DBUILD_SHARED_LIBS=OFF",
+        "-DBUILD_STATIC_LIBS=ON",
+        "-DBUILD_LIBCURL_DOCS=OFF",
+        "-DBUILD_MISC_DOCS=OFF",
+        "-DENABLE_CURL_MANUAL=OFF",
+    ])
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Build net_libs for the given platform")
+    parser.add_argument('-p', "--platform", type=str, default="all", help="The platform to build for")
+    parser.add_argument("--tls", type=str, default="", help="The TLS backend to build with")
+    parser.add_argument("--debug", action="store_true", help="Whether to build in debug mode")
+    parser.add_argument('-o', "--output", type=Path, default=Path.cwd() / "out", help="The output directory for the built libraries")
+    parser.add_argument("--build-dir", type=Path, default=Path.cwd() / "build", help="The intermediate build directory")
+    parser.add_argument("--ndk-path", type=str, default="", help="The intermediate build directory")
+    parser.add_argument("--generator", type=str, default="", help="The CMake generator to use (e.g. Ninja, Visual Studio 16 2019, etc.)")
+    parser.add_argument("--clean", action="store_true", help="Whether to rebuild & reclone from scratch")
+
+    args = parser.parse_args()
+    if args.platform == "all":
+        platforms = ["windows", "android32", "android64", "macos", "ios"]
+    else:
+        platforms = [args.platform.lower()]
+
+    if args.clean:
+        if args.output.exists():
+            shutil.rmtree(args.output)
+        if args.build_dir.exists():
+            shutil.rmtree(args.build_dir)
+
+    configs = []
+    for plat in platforms:
+        config = BuildConfig.for_platform(plat)
+
+        if args.tls:
+            config.tls = TlsBackend.from_str(args.tls)
+        config.output_path = args.output / plat
+        config.build_dir = args.build_dir
+        config.profile = "Debug" if args.debug else "Release"
+        config.generator = args.generator
+
+        # Android toolchain file
+        if "android" in plat:
+            ndk = args.ndk_path
+            if not ndk:
+                ndk = os.getenv("ANDROID_NDK_HOME", "")
+            if not ndk:
+                ndk = os.getenv("ANDROID_NDK_ROOT", "")
+            if not ndk:
+                cprint("Error: Android NDK path not specified. Use --ndk-path or set ANDROID_NDK_HOME/ANDROID_NDK_ROOT environment variable.", Color.RED)
+                exit(1)
+
+            config.ndk_path = Path(ndk)
+            config.cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake")
+
+        configs.append(config)
+
+    for config in configs:
+        try:
+            start = time.perf_counter()
+            build(config)
+            taken = time.perf_counter() - start
+            cprint(f"Build succeeded for {config.platform} in {taken:.2f} seconds!", Color.GREEN)
+        except BuildException as e:
+            cprint(f"Build failed for {config.platform}!", Color.RED)
+            cprint(str(e), Color.RED)
+            break
+        except Exception as e:
+            cprint(f"Build failed for {config.platform} with an unexpected error!", Color.RED)
+            traceback.print_exc()
+            break

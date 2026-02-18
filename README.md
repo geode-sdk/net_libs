@@ -1,9 +1,8 @@
 # Networking Libs
 
-Build curl (8.8.0) with
-- TLS (BoringSSL / Schannel on Windows)
-- HTTP2 (nghttp2 1.62.1)
-- HTTP3 (ngtcp2 1.5.0, nghttp3 1.3.0) (only Android/MacOS)
+Build curl (8.18.0) with
+- TLS (Schannel / Rustls, configurable)
+- HTTP2 (nghttp2 1.68.1)
 
 ## Cloning
 
@@ -13,14 +12,20 @@ git clone --recurse-submodules -j$(nproc) https://github.com/geode-sdk/net_libs
 
 ## Build notes
 
-### Windows build
+The `build.py` script can build libcurl and other libraries for all platforms. To build for a specific platform:
+```py
+python build.py -p windows
+```
 
-The powershell script must be launched from a VS dev command line.
+The script has many options for building, for example choosing the TLS library or the DNS backend.
 
-### Patching curl
+Using OpenSSL as the TLS backend requires it to be installed on the system.
 
-BoringSSL links to `libc++` when compiling for android, macOS. `CMakeFiles.txt` from curl must be modified to allow tests to pass.
+Using Rustls may require extra setup to cross-compile:
+```sh
+# for android32
+rustup target add armv7-linux-androideabi
 
-1. `project(CURL C)` -> `project(CURL C CXX)`
-2. Add `include(CheckCXXSymbolExists)`
-3. Locate `openssl_check_symbol_exists` and change `check_symbol_exists` to `check_cxx_symbol_exists` at the end
+# for android64
+rustup target add aarch64-linux-android
+```
