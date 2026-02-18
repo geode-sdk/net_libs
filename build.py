@@ -4,7 +4,6 @@ from subprocess import Popen, PIPE, STDOUT
 from enum import Enum, auto
 import traceback
 import argparse
-import requests
 import shutil
 import time
 import os
