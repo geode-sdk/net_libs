@@ -98,8 +98,26 @@ class BuildConfig:
                 tls = TlsBackend.OpenSSL
                 args.append(f"-DANDROID_ABI={'arm64-v8a' if p == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
-            case "ios" | "macos":
+            case "macos":
                 tls = TlsBackend.Rustls
+                args.append('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64')
+                args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15")
+            case "ios":
+                tls = TlsBackend.Rustls
+                args.append('-DCMAKE_OSX_ARCHITECTURES=arm64')
+                args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0")
+                args.append("-DCMAKE_IOS_INSTALL_COMBINED=YES")
+                args.append("-DCMAKE_SYSTEM_NAME=iOS")
+
+                # find the sysroot
+                xcrun = shutil.which("xcrun")
+                p = Popen(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], stdout=PIPE, stderr=PIPE)
+                stdout, stderr = p.communicate()
+                if p.returncode != 0:
+                    raise BuildException(f"Failed to find iOS SDK path with xcrun:\n{stdout.decode()}\n{stderr.decode()}")
+
+                sdk_path = stdout.decode().strip()
+                args.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
             case _:
                 raise ValueError(f"Unsupported platform: {p}")
 
