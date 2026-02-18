@@ -190,17 +190,17 @@ def find_android_toolchain(ndk_root: Path) -> Path:
 
 def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
     # check if cargo is installed
-    p = Popen(["cargo", "--version"], stdout=PIPE, stderr=PIPE).wait()
-    if p != 0:
+    cargo = shutil.which("cargo")
+    if not cargo:
         raise BuildException("Cargo is not installed or not found in PATH!")
 
     # check if cargo-c is installed
-    p = Popen(["cargo", "capi"], stdout=PIPE, stderr=PIPE).wait()
+    p = Popen([cargo, "capi"], stdout=PIPE, stderr=PIPE).wait()
     if p != 0:
         raise BuildException("cargo-c is not installed! Please install it with `cargo install cargo-c`")
 
     args = [
-        "cargo", "capi", "install",
+        cargo, "capi", "install",
         "--prefix", install_dir,
         "--library-type", "staticlib",
         "--target", config.target_triple(),
