@@ -1,7 +1,7 @@
 # Networking Libs
 
 Build curl (v8.19.0-rc.1) with
-- TLS (Schannel / Rustls v0.15.0, configurable)
+- TLS (Rustls v0.15.0, configurable)
 - HTTP2 (nghttp2 v1.68.1)
 - Zlib (v1.3.2) and zstd (v1.5.7) compression
 - Async DNS (c-ares 2870f6b)
@@ -23,7 +23,7 @@ The script has many options for building, for example choosing the TLS library o
 
 Using OpenSSL as the TLS backend requires it to be installed on the system.
 
-Using Rustls (default on non-Windows) may require extra setup to cross-compile, besides just installing Rust and cargo-c:
+Using Rustls (default option) may require extra setup to cross-compile, besides just installing Rust and cargo-c:
 ```sh
 # for android32
 rustup target add armv7-linux-androideabi
