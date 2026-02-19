@@ -1,8 +1,10 @@
 # Networking Libs
 
-Build curl (8.18.0) with
-- TLS (Schannel / Rustls, configurable)
-- HTTP2 (nghttp2 1.68.1)
+Build curl (v8.18.0) with
+- TLS (Schannel / Rustls v0.15.0, configurable)
+- HTTP2 (nghttp2 v1.68.1)
+- Zlib (v1.3.2) and zstd (v1.5.7) compression
+- Async DNS (c-ares 2870f6b)
 
 ## Cloning
 
