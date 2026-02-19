@@ -429,6 +429,17 @@ def build(config: BuildConfig):
     curl_args.append("-DCURL_ZSTD=ON")
     add_linked_library("zstd", out_dir / "zstd", "zstd_static.lib" if config.platform == "windows" else "libzstd.a")
 
+    # patch zlib to not use deprecated ucrt functions
+    gzgutsfile = src_dir / "zlib" / "gzguts.h"
+    gzguts = gzgutsfile.read_text()
+    gzguts = gzguts + "\n#if defined(_WIN32)\n" \
+        "# define open _open\n" \
+        "# define read _read\n" \
+        "# define write _write\n" \
+        "# define close _close\n" \
+        "#endif\n"
+    gzgutsfile.write_text(gzguts)
+
     # build zlib
     build_one(src_dir / "zlib", out_dir / "zlib", config, [
         "-DZLIB_BUILD_TESTING=OFF",
