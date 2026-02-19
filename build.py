@@ -24,6 +24,8 @@ ZSTD_REPO = "https://github.com/facebook/zstd"
 ZSTD_TAG = "v1.5.7"
 RUSTLS_REPO = "https://github.com/rustls/rustls-ffi"
 RUSTLS_TAG = "v0.15.0"
+ZLIB_REPO = "https://github.com/madler/zlib"
+ZLIB_TAG = "v1.3.2"
 
 ANDROID_SDK_VERSION = 23
 
@@ -35,6 +37,7 @@ REPOS = [
     (NGHTTP3_REPO, NGHTTP3_TAG),
     (ZSTD_REPO, ZSTD_TAG),
     (RUSTLS_REPO, RUSTLS_TAG),
+    (ZLIB_REPO, ZLIB_TAG),
 ]
 
 verified_repos = []
@@ -334,13 +337,22 @@ def build(config: BuildConfig):
         checked_packages = True
 
     curl_args = []
-    def add_linked_library(name: str, path: Path):
-        curl_args.append(f"-D{name.upper()}_INCLUDE_DIR={path / 'include'}")
-        if config.platform == "windows":
-            libname = f"{name}.lib"
-        else:
-            libname = f"lib{name}.a"
-        curl_args.append(f"-D{name.upper()}_LIBRARY={path / 'lib' / libname}")
+    def add_linked_library(name: str, path: Path, libname: str | None = None):
+        if libname is None:
+            if config.platform == "windows":
+                libname = f"{name}.lib"
+            else:
+                libname = f"lib{name}.a"
+
+        inc_path = path / 'include'
+        lib_path = path / 'lib' / libname
+        if not inc_path.exists():
+            raise BuildException(f"Include directory for {name} not found at {inc_path}!")
+        if not lib_path.exists():
+            raise BuildException(f"Library file for {name} not found at {lib_path}!")
+
+        curl_args.append(f"-D{name.upper()}_INCLUDE_DIR={inc_path}")
+        curl_args.append(f"-D{name.upper()}_LIBRARY={lib_path}")
 
 
     # build the tls library
@@ -395,6 +407,15 @@ def build(config: BuildConfig):
     ])
     curl_args.append("-DCURL_ZSTD=ON")
     add_linked_library("zstd", out_dir / "zstd")
+
+    # build zlib
+    build_one(src_dir / "zlib", out_dir / "zlib", config, [
+        "-DZLIB_BUILD_TESTING=OFF",
+        "-DZLIB_BUILD_SHARED=OFF",
+        "-DZLIB_BUILD_STATIC=ON",
+    ])
+    curl_args.append("-DCURL_ZLIB=ON")
+    add_linked_library("zlib", out_dir / "zlib", "zlib.lib" if config.platform == "windows" else "libz.a")
 
     # build nghttp2
     build_one(src_dir / "nghttp2", out_dir / "nghttp2", config, [
