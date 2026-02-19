@@ -357,9 +357,15 @@ def build(config: BuildConfig):
             "-DCARES_STATIC=ON",
             "-DCARES_SHARED=OFF",
             "-DCARES_BUILD_TESTS=OFF",
+            "-DCARES_BUILD_TOOLS=OFF",
         ])
         curl_args.append("-DENABLE_ARES=ON")
         add_linked_library("cares", out_dir / "c-ares")
+
+        # remove man pages and docs from build
+        share = out_dir / "c-ares" / "share"
+        if share.exists():
+            shutil.rmtree(share)
 
     # build zstd
     build_one(src_dir / "zstd" / "build" / "cmake", out_dir / "zstd", config, [
