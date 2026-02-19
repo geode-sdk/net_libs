@@ -271,6 +271,10 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         if r != 0:
             raise BuildException(f"Failed to build rustls!")
 
+        libpath = install_dir / "lib" / ("librustls.a" if config.platform != "windows" else "rustls.lib")
+        if not libpath.exists():
+            raise BuildException(f"Failed to find built rustls library at {libpath}!")
+
 def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
     build_dir = path / "build"
     if build_dir.exists():
