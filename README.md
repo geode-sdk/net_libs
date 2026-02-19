@@ -1,6 +1,6 @@
 # Networking Libs
 
-Build curl (v8.18.0) with
+Build curl (v8.19.0-rc.1) with
 - TLS (Schannel / Rustls v0.15.0, configurable)
 - HTTP2 (nghttp2 v1.68.1)
 - Zlib (v1.3.2) and zstd (v1.5.7) compression

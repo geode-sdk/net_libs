@@ -12,7 +12,7 @@ import time
 import os
 
 CURL_REPO = "https://github.com/curl/curl"
-CURL_TAG = "curl-8_18_0"
+CURL_TAG = "rc-8_19_0-1"
 CARES_REPO = "https://github.com/c-ares/c-ares"
 CARES_TAG = "2870f6b"
 NGHTTP2_REPO = "https://github.com/nghttp2/nghttp2"
