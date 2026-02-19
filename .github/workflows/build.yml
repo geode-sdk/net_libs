@@ -90,7 +90,8 @@ jobs:
             --platform ${{ matrix.platform }} \
             --generator Ninja \
             --output out \
-            --build-dir build
+            --build-dir build \
+            --tls rustls
 
       # Upload
       - name: Upload binaries
