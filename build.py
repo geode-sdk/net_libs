@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from subprocess import Popen, PIPE, STDOUT
 from enum import Enum, auto
+import platform as pf
 import traceback
 import builtins
 import argparse
@@ -91,6 +92,7 @@ class BuildConfig:
     cmake_env: dict[str, str] = field(default_factory=dict)
     ndk_path: Path | None = None
     generator: str = ""
+    flatten_output: bool = False
     output_path: Path = field(default_factory=Path)
     build_dir: Path = field(default_factory=Path)
 
@@ -148,6 +150,19 @@ class BuildConfig:
                 return "aarch64-apple-darwin"
             case _:
                 raise ValueError(f"Unsupported platform: {self.platform}")
+
+    @staticmethod
+    def determine_platform() -> str:
+        name = pf.system().lower()
+        if name == "darwin":
+            return "macos"
+        elif name == "linux":
+            return "android64"
+        elif name == "windows":
+            return "windows"
+        else:
+            raise ValueError(f"Unexpected host platform '{name}', explicitly pass the target platform using --platform")
+
 
 def clone_package(repo: str, tag: str, path: Path):
     p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
@@ -243,9 +258,11 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         x64args = args + ["--target", "x86_64-apple-darwin", "--prefix", tmp_x64]
         arm64args = args + ["--target", "aarch64-apple-darwin", "--prefix", tmp_arm64]
 
+        print(' '.join(map(str, x64args)))
         r = Popen(x64args, cwd=path, stderr=STDOUT, env=env).wait()
         if r != 0:
             raise BuildException(f"Failed to build rustls for macOS (x64)!")
+        print(' '.join(map(str, arm64args)))
         r = Popen(arm64args, cwd=path, stderr=STDOUT, env=env).wait()
         if r != 0:
             raise BuildException(f"Failed to build rustls for macOS (arm64)!")
@@ -275,6 +292,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
             "--target", config.target_triple(),
             "--prefix", str(install_dir),
         ))
+        print(' '.join(args))
         r = Popen(args, cwd=path, stderr=STDOUT, env=env).wait()
         if r != 0:
             raise BuildException(f"Failed to build rustls!")
@@ -313,8 +331,10 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
 
     # build
     cprint(f"Building {path.name}..", Color.BLUE)
+    build_args = [cmake, "--build", str(build_dir), "--target", "install", "--config", config.profile, "--parallel"]
+    print(' '.join(build_args))
     r = Popen(
-        [cmake, "--build", str(build_dir), "--target", "install", "--config", config.profile, "--parallel"],
+        build_args,
         env=env,
         stderr=STDOUT
     ).wait()
@@ -325,7 +345,13 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
 checked_packages = False
 def build(config: BuildConfig):
     global checked_packages
-    cprint(f"Building for {config.platform} (TLS: {config.tls.name if config.tls else 'none'})", Color.GREEN)
+
+    tls_str = config.tls.name if config.tls else "none"
+    gen_str = config.generator or "default"
+    cprint(
+        f"Building for {config.platform} (TLS: {tls_str}, generator: {gen_str}, profile: {config.profile})",
+        Color.GREEN
+    )
 
     src_dir = config.build_dir / "sources"
     out_dir = config.output_path
@@ -429,7 +455,7 @@ def build(config: BuildConfig):
     add_linked_library("nghttp2", out_dir / "nghttp2")
 
     # this is a tiny fix because curl tries to link nghttp2 dynamically :(
-    verfile = out_dir / "nghttp2" / "include" / "nghttp2ver.h"
+    verfile = out_dir / "nghttp2" / "include" / "nghttp2" / "nghttp2ver.h"
     verfiletext = verfile.read_text()
     verfiletext = verfiletext.replace(
         "#endif", "#define NGHTTP2_STATICLIB 1\n\n#endif"
@@ -470,9 +496,24 @@ def build(config: BuildConfig):
         "-DENABLE_CURL_MANUAL=OFF",
     ])
 
+    # flatten the output
+    if config.flatten_output:
+        cprint("Flattening output directory..", Color.BLUE)
+
+        ext = "*.lib" if config.platform == "windows" else "*.a"
+        for path in config.output_path.glob(f"**/{ext}"):
+            shutil.copy(path, config.output_path / path.name)
+        curl_include = config.output_path / "curl" / "include"
+        shutil.copytree(curl_include, config.output_path / "include", dirs_exist_ok=True)
+
+        dirs = list(config.output_path.iterdir())
+        for d in dirs:
+            if d.is_dir() and d.name not in ("include",):
+                shutil.rmtree(d)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build net_libs for the given platform")
-    parser.add_argument('-p', "--platform", type=str, default="all", help="The platform to build for")
+    parser.add_argument('-p', "--platform", type=str, default="", help="The platform to build for")
     parser.add_argument("--tls", type=str, default="", help="The TLS backend to build with")
     parser.add_argument("--debug", action="store_true", help="Whether to build in debug mode")
     parser.add_argument('-o', "--output", type=Path, default=Path.cwd() / "out", help="The output directory for the built libraries")
@@ -480,57 +521,81 @@ if __name__ == "__main__":
     parser.add_argument("--ndk-path", type=str, default="", help="The intermediate build directory")
     parser.add_argument("--generator", type=str, default="", help="The CMake generator to use (e.g. Ninja, Visual Studio 16 2019, etc.)")
     parser.add_argument("--clean", action="store_true", help="Whether to rebuild & reclone from scratch")
+    parser.add_argument("--toolchain", type=str, required=False, help="The CMake toolchain file to use (for cross-compilation)")
+    parser.add_argument("--splat", type=str, required=False, help="Splat dir for cross-compiling to Windows, if passed, configures other cross-compilation things as well")
+    parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
 
     args = parser.parse_args()
-    if args.platform == "all":
-        platforms = ["windows", "android32", "android64", "macos", "ios"]
+    if not args.platform:
+        platform = BuildConfig.determine_platform()
     else:
-        platforms = [args.platform.lower()]
+        platform = args.platform.lower()
 
     if args.clean:
+        assert args.output != Path("/"), "Refusing to delete root directory!"
+        assert args.build_dir != Path("/"), "Refusing to delete root directory!"
+
         if args.output.exists():
             shutil.rmtree(args.output)
         if args.build_dir.exists():
             shutil.rmtree(args.build_dir)
 
-    configs = []
-    for plat in platforms:
-        config = BuildConfig.for_platform(plat)
+    # create config
+    config = BuildConfig.for_platform(platform)
 
-        if args.tls:
-            config.tls = TlsBackend.from_str(args.tls)
-        config.output_path = (args.output / plat).absolute()
-        config.build_dir = args.build_dir.absolute()
-        config.profile = "Debug" if args.debug else "Release"
+    if args.tls:
+        config.tls = TlsBackend.from_str(args.tls)
+    config.output_path = (args.output / platform).absolute()
+    config.build_dir = args.build_dir.absolute()
+    config.profile = "Debug" if args.debug else "Release"
+    config.flatten_output = args.flat_output
+    if args.generator:
         config.generator = args.generator
+    else:
+        # default to Ninja if available, otherwise let cmake decide
+        if shutil.which("ninja"):
+            config.generator = "Ninja"
 
-        # Android toolchain file
-        if "android" in plat:
-            ndk = args.ndk_path
-            if not ndk:
-                ndk = os.getenv("ANDROID_NDK_HOME", "")
-            if not ndk:
-                ndk = os.getenv("ANDROID_NDK_ROOT", "")
-            if not ndk:
-                cprint("Error: Android NDK path not specified. Use --ndk-path or set ANDROID_NDK_HOME/ANDROID_NDK_ROOT environment variable.", Color.RED)
-                exit(1)
+    if args.splat:
+        config.cmake_args.append(f"-DSPLAT_DIR={args.splat}")
+        config.cmake_args.append(f"-DHOST_ARCH=x64")
 
-            config.ndk_path = Path(ndk)
+        symlinks_dir = os.getenv("_winsdk_lib_symlinks_dir", os.getenv("winsdk_lib_symlinks_dir", str(config.build_dir / "winsdk-symlinks")))
+        config.cmake_env["_winsdk_lib_symlinks_dir"] = symlinks_dir
+        cprint(f"Using symlinks dir for Windows SDK libraries: {symlinks_dir}", Color.BLUE)
+
+    # manually specified toolchain
+    if args.toolchain:
+        config.cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={args.toolchain}")
+
+    # Android NDK and toolchain setup
+    if "android" in platform:
+        ndk = args.ndk_path
+        if not ndk:
+            ndk = os.getenv("ANDROID_NDK_HOME", "")
+        if not ndk:
+            ndk = os.getenv("ANDROID_NDK_ROOT", "")
+        if not ndk:
+            cprint("Error: Android NDK path not specified. Use --ndk-path or set ANDROID_NDK_HOME/ANDROID_NDK_ROOT environment variable.", Color.RED)
+            exit(1)
+
+        config.ndk_path = Path(ndk)
+
+        # don't override toolchain if explicitly passed
+        if not args.toolchain:
             config.cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake")
 
-        configs.append(config)
-
-    for config in configs:
-        try:
-            start = time.perf_counter()
-            build(config)
-            taken = time.perf_counter() - start
-            cprint(f"Build succeeded for {config.platform} in {taken:.2f} seconds!", Color.GREEN)
-        except BuildException as e:
-            cprint(f"Build failed for {config.platform}!", Color.RED)
-            cprint(str(e), Color.RED)
-            exit(1)
-        except Exception as e:
-            cprint(f"Build failed for {config.platform} with an unexpected error!", Color.RED)
-            traceback.print_exc()
-            exit(1)
+    # do the actual build
+    try:
+        start = time.perf_counter()
+        build(config)
+        taken = time.perf_counter() - start
+        cprint(f"Build succeeded for {config.platform} in {taken:.2f} seconds!", Color.GREEN)
+    except BuildException as e:
+        cprint(f"Build failed for {config.platform}!", Color.RED)
+        cprint(str(e), Color.RED)
+        exit(1)
+    except Exception as e:
+        cprint(f"Build failed for {config.platform} with an unexpected error!", Color.RED)
+        traceback.print_exc()
+        exit(1)

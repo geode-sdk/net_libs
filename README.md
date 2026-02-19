@@ -23,7 +23,7 @@ The script has many options for building, for example choosing the TLS library o
 
 Using OpenSSL as the TLS backend requires it to be installed on the system.
 
-Using Rustls may require extra setup to cross-compile:
+Using Rustls (default on non-Windows) may require extra setup to cross-compile, besides just installing Rust and cargo-c:
 ```sh
 # for android32
 rustup target add armv7-linux-androideabi
@@ -37,4 +37,15 @@ rustup target add aarch64-apple-darwin
 
 # for iOS
 rustup target add aarch64-apple-ios
+```
+
+Compilation should work out of the box for the following combinations, given that all the required tools are installed such as iOS SDK, Android NDK, etc. (host -> target)
+* Windows -> Windows, Android
+* MacOS -> Android, MacOS, iOS
+* Linux -> Android
+
+Compiling for Windows on non-Windows platforms requires a cross-compilation toolchain. Pass the paths to `clang-msvc.cmake` and the splat directory:
+```sh
+TOOLS=~/.local/share/Geode/cross-tools/
+python build.py -p windows --toolchain $TOOLS/clang-msvc-sdk/clang-msvc.cmake --splat $TOOLS/splat
 ```
