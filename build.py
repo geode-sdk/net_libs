@@ -477,8 +477,8 @@ if __name__ == "__main__":
         except BuildException as e:
             cprint(f"Build failed for {config.platform}!", Color.RED)
             cprint(str(e), Color.RED)
-            break
+            exit(1)
         except Exception as e:
             cprint(f"Build failed for {config.platform} with an unexpected error!", Color.RED)
             traceback.print_exc()
-            break
+            exit(1)
