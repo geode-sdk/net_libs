@@ -13,6 +13,7 @@ jobs:
           - os: windows-latest
             platform: windows
             name: Windows
+            rust-targets: x86_64-pc-windows-msvc
 
           - os: macos-latest
             platform: macos
