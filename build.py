@@ -27,6 +27,8 @@ RUSTLS_REPO = "https://github.com/rustls/rustls-ffi"
 RUSTLS_TAG = "v0.15.0"
 ZLIB_REPO = "https://github.com/madler/zlib"
 ZLIB_TAG = "v1.3.2"
+OPENSSL_REPO = "https://github.com/openssl/openssl"
+OPENSSL_TAG = "openssl-3.6.1"
 
 ANDROID_SDK_VERSION = 23
 
@@ -39,6 +41,7 @@ REPOS = [
     (ZSTD_REPO, ZSTD_TAG),
     (RUSTLS_REPO, RUSTLS_TAG),
     (ZLIB_REPO, ZLIB_TAG),
+    (OPENSSL_REPO, OPENSSL_TAG),
 ]
 
 class Color:
@@ -91,7 +94,8 @@ class BuildConfig:
     ndk_path: Path | None = None
     generator: str = ""
     flatten_output: bool = False
-    only_curl: bool = False
+    skip_lib_verify: bool = False
+    rebuild_whitelist: set[str] = field(default_factory=set)
     output_path: Path = field(default_factory=Path)
     build_dir: Path = field(default_factory=Path)
 
@@ -104,9 +108,9 @@ class BuildConfig:
         plat = plat.lower()
         match plat:
             case "windows":
-                tls = TlsBackend.SChannel
-            case "android32" | "android64":
                 tls = TlsBackend.Rustls
+            case "android32" | "android64":
+                tls = TlsBackend.OpenSSL
                 args.append(f"-DANDROID_ABI={'arm64-v8a' if plat == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
                 args.append("-Wno-dev") # very annoying cmake 3.10 deprecation warnings
@@ -162,6 +166,11 @@ class BuildConfig:
         else:
             raise ValueError(f"Unexpected host platform '{name}', explicitly pass the target platform using --platform")
 
+    def should_build(self, package_name: str) -> bool:
+        if self.rebuild_whitelist and package_name not in self.rebuild_whitelist:
+            cprint(f"Skipping build for {package_name} since it's not in the whitelist (--only)", Color.YELLOW)
+            return False
+        return True
 
 def clone_package(repo: str, tag: str, path: Path):
     p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
@@ -190,12 +199,15 @@ def verify_packages(parent: Path, config: BuildConfig):
                 is_enabled = config.tls == TlsBackend.Rustls
             case "c-ares":
                 is_enabled = config.use_ares
+            case "openssl":
+                is_enabled = config.tls == TlsBackend.OpenSSL
 
         if not is_enabled:
             continue
 
         path = parent / name
-        verify_package(repo, tag, path)
+        if not config.skip_lib_verify:
+            verify_package(repo, tag, path)
 
 def find_android_toolchain(ndk_root: Path) -> Path:
     toolchains = list((ndk_root / "toolchains").glob("llvm/prebuilt/*"))
@@ -208,8 +220,7 @@ def find_android_toolchain(ndk_root: Path) -> Path:
     return toolchains[0]
 
 def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
-    if config.only_curl:
-        cprint(f"Skipping build for rustls since --only-curl is set", Color.YELLOW)
+    if not config.should_build("rustls"):
         return
 
     # check if cargo is installed
@@ -298,9 +309,55 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         if not libpath.exists():
             raise BuildException(f"Failed to find built rustls library at {libpath}!")
 
+def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
+    if not config.should_build("openssl"):
+        return
+
+    # pain begins here..
+    env = os.environ.copy()
+    env.update(config.cmake_env)
+
+    args = [str(path / "Configure")]
+    mapping = {
+        "android32": "android-arm",
+        "android64": "android-arm64",
+    }
+    args.append(mapping[config.platform])
+    args.append(f"--prefix={install_dir}")
+    args.append(f"--openssldir={install_dir}/ssl")
+    args.append("no-shared")
+    args.append("no-docs")
+    args.append("no-tests")
+    args.append("no-apps")
+    args.append("no-module")
+    args.append("no-engine")
+    args.append("no-async")
+
+    if "android" in config.platform:
+        assert config.ndk_path
+        env["ANDROID_NDK_ROOT"] = str(config.ndk_path)
+        toolchain = find_android_toolchain(config.ndk_path)
+        env["PATH"] = str(toolchain / "bin") + os.pathsep + env.get("PATH", "")
+        args.append(f"-D__ANDROID_API__={ANDROID_SDK_VERSION}")
+
+    print(' '.join(args))
+    r = Popen(args, cwd=path, env=env, stderr=STDOUT).wait()
+    if r != 0:
+        raise BuildException(f"Failed to configure OpenSSL!")
+
+    make = shutil.which("nmake") if config.platform == "windows" else shutil.which("make")
+    if not make:
+        raise BuildException(f"Failed to find {'nmake' if config.platform == 'windows' else 'make'} for building OpenSSL!")
+
+    nproc = os.cpu_count() or 1
+    r = Popen([make, f"-j{nproc}"], cwd=path, env=env, stderr=STDOUT).wait()
+    if r != 0:
+        raise BuildException(f"Failed to build OpenSSL!")
+    Popen([make, "install_sw"], cwd=path, env=env, stderr=STDOUT).wait()
+
 def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
-    if config.only_curl and path.name != "curl":
-        cprint(f"Skipping build for {path.name} since --only-curl is set", Color.YELLOW)
+    lib_name = install_dir.name
+    if not config.should_build(lib_name):
         return
 
     build_dir = path / "build"
@@ -320,7 +377,7 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     env = os.environ.copy()
     env.update(config.cmake_env)
 
-    cprint(f"Configuring {path.name}..", Color.BLUE)
+    cprint(f"Configuring {lib_name}..", Color.BLUE)
     print(f"{cmake} {' '.join(cmake_args)}")
     r = Popen(
         [cmake] + cmake_args,
@@ -328,10 +385,10 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
         stderr=STDOUT
     ).wait()
     if r != 0:
-        raise BuildException(f"CMake configuration failed for {path.name}!")
+        raise BuildException(f"CMake configuration failed for {lib_name}!")
 
     # build
-    cprint(f"Building {path.name}..", Color.BLUE)
+    cprint(f"Building {lib_name}..", Color.BLUE)
     build_args = [cmake, "--build", str(build_dir), "--target", "install", "--config", config.profile, "--parallel"]
     print(' '.join(build_args))
     r = Popen(
@@ -340,7 +397,7 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
         stderr=STDOUT
     ).wait()
     if r != 0:
-        raise BuildException(f"Build failed for {path.name}!")
+        raise BuildException(f"Build failed for {lib_name}!")
 
 
 def build(config: BuildConfig):
@@ -353,7 +410,8 @@ def build(config: BuildConfig):
 
     src_dir = config.build_dir / "sources"
     out_dir = config.output_path
-    if out_dir.exists() and not config.only_curl:
+    if out_dir.exists() and not config.rebuild_whitelist:
+        # remove the out dir if we rebuild all packages
         shutil.rmtree(out_dir)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -379,6 +437,25 @@ def build(config: BuildConfig):
         curl_args.append(f"-D{name.upper()}_INCLUDE_DIR={inc_path}")
         curl_args.append(f"-D{name.upper()}_LIBRARY={lib_path}")
 
+    def add_linked_library_openssl(path: Path):
+        inc_path = path / 'include'
+        if not inc_path.exists():
+            raise BuildException(f"Include directory for openssl not found at {inc_path}!")
+        curl_args.append(f"-DOPENSSL_INCLUDE_DIR={inc_path}")
+
+        libs_path = path / 'lib'
+        for component in ("ssl", "crypto"):
+            if config.platform == "windows":
+                libname = f"{component}.lib"
+            else:
+                libname = f"lib{component}.a"
+
+            lib_path = libs_path / libname
+
+            if not lib_path.exists():
+                raise BuildException(f"Library file for {component} (openssl) not found at {lib_path}!")
+
+            curl_args.append(f"-DOPENSSL_{component.upper()}_LIBRARY={libs_path / libname}")
 
     # build the tls library
     if config.tls != TlsBackend.OpenSSL:
@@ -400,9 +477,9 @@ def build(config: BuildConfig):
             curl_args.append("-DCURL_USE_SCHANNEL=ON")
 
         case TlsBackend.OpenSSL:
-            # TODO: currently we don't build openssl.
-            cprint("We hope you have OpenSSL already installed..", Color.YELLOW)
+            build_openssl(src_dir / "openssl", out_dir / "openssl", config)
             curl_args.append("-DCURL_USE_OPENSSL=ON")
+            add_linked_library_openssl(out_dir / "openssl")
 
     # build c-ares
     if config.use_ares:
@@ -537,7 +614,8 @@ if __name__ == "__main__":
     parser.add_argument("--toolchain", type=str, required=False, help="The CMake toolchain file to use (for cross-compilation)")
     parser.add_argument("--splat", type=str, required=False, help="Splat dir for cross-compiling to Windows, if passed, configures other cross-compilation things as well")
     parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
-    parser.add_argument("--only-curl", action="store_true", help="Only build curl, assuming the dependencies are already built and configured properly in the output directory")
+    parser.add_argument("--only", type=str, default="", help="Only rebuild the given packages, comma separated")
+    parser.add_argument("--skip-lib-verify", action="store_true", help="Skip verification of git repos")
 
     args = parser.parse_args()
     if not args.platform:
@@ -563,7 +641,8 @@ if __name__ == "__main__":
     config.build_dir = args.build_dir.absolute()
     config.profile = "Debug" if args.debug else "Release"
     config.flatten_output = args.flat_output
-    config.only_curl = args.only_curl
+    config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
+    config.skip_lib_verify = args.skip_lib_verify
     if args.generator:
         config.generator = args.generator
     else:
