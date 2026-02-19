@@ -28,4 +28,11 @@ rustup target add armv7-linux-androideabi
 
 # for android64
 rustup target add aarch64-linux-android
+
+# for macOS
+rustup target add x86_64-apple-darwin
+rustup target add aarch64-apple-darwin
+
+# for iOS
+rustup target add aarch64-apple-ios
 ```

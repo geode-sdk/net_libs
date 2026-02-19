@@ -86,18 +86,18 @@ class BuildConfig:
     build_dir: Path = field(default_factory=Path)
 
     @classmethod
-    def for_platform(cls, p: str) -> BuildConfig:
+    def for_platform(cls, plat: str) -> BuildConfig:
         tls: TlsBackend | None = None
         args = []
         env = {}
 
-        p = p.lower()
-        match p:
+        plat = plat.lower()
+        match plat:
             case "windows":
                 tls = TlsBackend.SChannel
             case "android32" | "android64":
                 tls = TlsBackend.OpenSSL
-                args.append(f"-DANDROID_ABI={'arm64-v8a' if p == 'android64' else 'armeabi-v7a'}")
+                args.append(f"-DANDROID_ABI={'arm64-v8a' if plat == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
             case "macos":
                 tls = TlsBackend.Rustls
@@ -112,7 +112,7 @@ class BuildConfig:
 
                 # find the sysroot
                 xcrun = shutil.which("xcrun")
-                p = Popen(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], stdout=PIPE, stderr=PIPE)
+                p = Popen([xcrun, "--sdk", "iphoneos", "--show-sdk-path"], stdout=PIPE, stderr=PIPE)
                 stdout, stderr = p.communicate()
                 if p.returncode != 0:
                     raise BuildException(f"Failed to find iOS SDK path with xcrun:\n{stdout.decode()}\n{stderr.decode()}")
@@ -120,9 +120,9 @@ class BuildConfig:
                 sdk_path = stdout.decode().strip()
                 args.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
             case _:
-                raise ValueError(f"Unsupported platform: {p}")
+                raise ValueError(f"Unsupported platform: {plat}")
 
-        return cls(tls, True, p, "Release", args, env)
+        return cls(tls, True, plat, "Release", args, env)
 
     def target_triple(self) -> str:
         match self.platform:
@@ -202,9 +202,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
 
     args = [
         cargo, "capi", "install",
-        "--prefix", install_dir,
         "--library-type", "staticlib",
-        "--target", config.target_triple(),
         "--no-default-features",
         "--features=ring"
     ]
@@ -224,9 +222,47 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         env["AR"] = str(toolchain / "bin" / "llvm-ar")
         env["CARGO_TARGET_" + triple.upper().replace("-", "_") + "_LINKER"] = env["CC"]
 
-    r = Popen(args, cwd=path, stderr=STDOUT, env=env).wait()
-    if r != 0:
-        raise BuildException(f"Failed to build rustls!")
+    if config.platform == "macos":
+        tmp_arm64 = install_dir / "tmp-rustls-arm64"
+        tmp_x64 = install_dir / "tmp-rustls-x64"
+        if tmp_arm64.exists():
+            shutil.rmtree(tmp_arm64)
+        if tmp_x64.exists():
+            shutil.rmtree(tmp_x64)
+
+        x64args = args + ["--target", "x86_64-apple-darwin", "--prefix", tmp_x64]
+        arm64args = args + ["--target", "aarch64-apple-darwin", "--prefix", tmp_arm64]
+
+        r = Popen(x64args, cwd=path, stderr=STDOUT, env=env).wait()
+        if r != 0:
+            raise BuildException(f"Failed to build rustls for macOS (x64)!")
+        r = Popen(arm64args, cwd=path, stderr=STDOUT, env=env).wait()
+        if r != 0:
+            raise BuildException(f"Failed to build rustls for macOS (arm64)!")
+
+        # create a universal binary
+        x64lib = tmp_x64 / "lib" / "librustls.a"
+        arm64lib = tmp_arm64 / "lib" / "librustls.a"
+        outlib = install_dir / "lib" / "librustls.a"
+        outlib.parent.mkdir(parents=True, exist_ok=True)
+        assert x64lib.exists() and arm64lib.exists()
+
+        lipo = shutil.which("lipo") or "lipo"
+        r = Popen([lipo, "-create", "-output", str(outlib), str(x64lib), str(arm64lib)], stderr=STDOUT).wait()
+        if r != 0:
+            raise BuildException(f"Failed to create universal binary for rustls!")
+
+        # copy the include dir
+        shutil.copytree(tmp_x64 / "include", install_dir, dirs_exist_ok=True)
+
+    else:
+        args.extend((
+            "--target", config.target_triple(),
+            "--prefix", install_dir,
+        ))
+        r = Popen(args, cwd=path, stderr=STDOUT, env=env).wait()
+        if r != 0:
+            raise BuildException(f"Failed to build rustls!")
 
 def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
     build_dir = path / "build"
