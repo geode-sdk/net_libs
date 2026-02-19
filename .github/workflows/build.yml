@@ -1,0 +1,76 @@
+name: Build curl bundle
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            name: Windows
+
+          - os: macos-latest
+            platform: macos
+            name: macOS (universal)
+            rust-targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+          - os: macos-latest
+            platform: ios
+            name: iOS
+            rust-targets: aarch64-apple-ios
+
+          - os: ubuntu-latest
+            platform: android32
+            name: Android (32-bit)
+            rust-targets: armv7-linux-androideabi
+
+          - os: ubuntu-latest
+            platform: android64
+            name: Android (64-bit)
+            rust-targets: aarch64-linux-android
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Install Rust
+        if: matrix.rust-targets != null
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Install cargo-c
+        run: cargo install cargo-c
+
+      # Android setup
+      - name: Install NDK
+        if: startsWith(matrix.platform, 'android')
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+
+      # Build
+      - name: Run build script
+        run: |
+          python build.py \
+            --platform ${{ matrix.platform }} \
+            --generator Ninja \
+            --output out \
+            --build-dir build
+
+      # Upload
+      - name: Upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: curl-${{ matrix.platform }}
+          path: out/${{ matrix.platform }}
