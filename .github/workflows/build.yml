@@ -49,14 +49,6 @@ jobs:
           path: ~/.cargo/bin
           key: cargo-bin-${{ runner.os }}-v1
 
-      - name: Cache rustup toolchains
-        if: matrix.rust-targets != ''
-        uses: actions/cache@v3
-        with:
-          path: ~/.rustup
-          key: rustup-${{ runner.os }}-v1
-          restore-keys: rustup-${{ runner.os }}-v1
-
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
@@ -90,9 +82,8 @@ jobs:
           python build.py \
             --platform ${{ matrix.platform }} \
             --generator Ninja \
-            --output out \
-            --build-dir build \
-            --tls rustls
+            --tls rustls \
+            --flat-output
 
       # Upload
       - name: Upload binaries
