@@ -111,7 +111,7 @@ class BuildConfig:
                 args.append("-DCMAKE_SYSTEM_NAME=iOS")
 
                 # find the sysroot
-                xcrun = shutil.which("xcrun")
+                xcrun = shutil.which("xcrun") or "xcrun"
                 p = Popen([xcrun, "--sdk", "iphoneos", "--show-sdk-path"], stdout=PIPE, stderr=PIPE)
                 stdout, stderr = p.communicate()
                 if p.returncode != 0:
