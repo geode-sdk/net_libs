@@ -4,6 +4,7 @@ from pathlib import Path
 from subprocess import Popen, PIPE, STDOUT
 from enum import Enum, auto
 import traceback
+import builtins
 import argparse
 import shutil
 import time
@@ -49,6 +50,11 @@ class Color:
 
 def cprint(text, color):
     print(f"{color}{text}{Color.RESET}")
+
+_orig_print = builtins.print
+def print(*args, **kwargs):
+    kwargs.setdefault("flush", True)
+    _orig_print(*args, **kwargs)
 
 class TlsBackend(Enum):
     OpenSSL = auto()
