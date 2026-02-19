@@ -105,6 +105,7 @@ class BuildConfig:
                 tls = TlsBackend.Rustls
                 args.append(f"-DANDROID_ABI={'arm64-v8a' if plat == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
+                args.append("-Wno-dev") # very annoying cmake 3.10 deprecation warnings
             case "macos":
                 tls = TlsBackend.Rustls
                 args.append('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64')
