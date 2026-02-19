@@ -253,7 +253,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
             raise BuildException(f"Failed to create universal binary for rustls!")
 
         # copy the include dir
-        shutil.copytree(tmp_x64 / "include", install_dir, dirs_exist_ok=True)
+        shutil.copytree(tmp_x64 / "include", install_dir / "include", dirs_exist_ok=True)
 
     else:
         args.extend((
