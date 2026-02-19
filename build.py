@@ -245,7 +245,14 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         arm64lib = tmp_arm64 / "lib" / "librustls.a"
         outlib = install_dir / "lib" / "librustls.a"
         outlib.parent.mkdir(parents=True, exist_ok=True)
-        assert x64lib.exists() and arm64lib.exists()
+        if not x64lib.exists() or not arm64lib.exists():
+            cprint(f"No rustls lib!", Color.RED)
+            cprint(f"tmp_x64 / lib exists: {(tmp_x64 / 'lib').exists()}", Color.RED)
+            cprint(f"x64lib exists: {x64lib.exists()}", Color.RED)
+            cprint(f"tmp_arm64 / lib exists: {(tmp_arm64 / 'lib').exists()}", Color.RED)
+            cprint(f"arm64lib exists: {arm64lib.exists()}", Color.RED)
+
+            raise BuildException(f"Failed to find built rustls libraries for macOS! x64: {x64lib.exists()}, arm64: {arm64lib.exists()}")
 
         lipo = shutil.which("lipo") or "lipo"
         r = Popen([lipo, "-create", "-output", str(outlib), str(x64lib), str(arm64lib)], stderr=STDOUT).wait()
@@ -258,7 +265,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
     else:
         args.extend((
             "--target", config.target_triple(),
-            "--prefix", install_dir,
+            "--prefix", str(install_dir),
         ))
         r = Popen(args, cwd=path, stderr=STDOUT, env=env).wait()
         if r != 0:
