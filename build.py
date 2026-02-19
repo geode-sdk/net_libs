@@ -208,6 +208,10 @@ def find_android_toolchain(ndk_root: Path) -> Path:
     return toolchains[0]
 
 def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
+    if config.only_curl:
+        cprint(f"Skipping build for rustls since --only-curl is set", Color.YELLOW)
+        return
+
     # check if cargo is installed
     cargo = shutil.which("cargo")
     if not cargo:
@@ -494,6 +498,9 @@ def build(config: BuildConfig):
         "-DCURL_USE_LIBSSH=OFF",
         "-DCURL_USE_LIBPSL=OFF",
         "-DCURL_BROTLI=OFF",
+        "-DUSE_APPLE_IDN=OFF",
+        "-DUSE_WIN32_IDN=OFF",
+        "-DUSE_LIBIDN2=OFF",
         "-DBUILD_CURL_EXE=OFF",
         "-DBUILD_SHARED_LIBS=OFF",
         "-DBUILD_STATIC_LIBS=ON",
