@@ -66,8 +66,7 @@ jobs:
           targets: ${{ matrix.rust-targets }}
 
       - name: Install cargo-c
-        if: matrix.rust-targets != ''
-        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        if: matrix.rust-targets != '' && steps.cargo-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-c
 
       # Android setup
