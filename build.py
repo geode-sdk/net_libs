@@ -262,6 +262,10 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         # copy the include dir
         shutil.copytree(tmp_x64 / "include", install_dir / "include", dirs_exist_ok=True)
 
+        # delete the tmp dirs
+        shutil.rmtree(tmp_arm64)
+        shutil.rmtree(tmp_x64)
+
     else:
         args.extend((
             "--target", config.target_triple(),
