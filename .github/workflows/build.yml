@@ -66,6 +66,7 @@ jobs:
           targets: ${{ matrix.rust-targets }}
 
       - name: Install cargo-c
+        if: matrix.rust-targets != ''
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-c
 
@@ -78,6 +79,7 @@ jobs:
 
       # Build
       - name: Run build script
+        shell: bash
         run: |
           python build.py \
             --platform ${{ matrix.platform }} \
