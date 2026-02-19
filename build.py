@@ -41,8 +41,6 @@ REPOS = [
     (ZLIB_REPO, ZLIB_TAG),
 ]
 
-verified_repos = []
-
 class Color:
     RED    = "\033[31m"
     GREEN  = "\033[32m"
@@ -93,6 +91,7 @@ class BuildConfig:
     ndk_path: Path | None = None
     generator: str = ""
     flatten_output: bool = False
+    only_curl: bool = False
     output_path: Path = field(default_factory=Path)
     build_dir: Path = field(default_factory=Path)
 
@@ -183,12 +182,7 @@ def verify_package(repo: str, tag: str, path: Path):
         raise BuildException(f"Failed to checkout {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
 
 def verify_packages(parent: Path, config: BuildConfig):
-    global verified_repos
-
     for (repo, tag) in REPOS:
-        if repo in verified_repos:
-            continue
-
         name = repo.rpartition("/")[-1]
         is_enabled = True
         match name:
@@ -202,7 +196,6 @@ def verify_packages(parent: Path, config: BuildConfig):
 
         path = parent / name
         verify_package(repo, tag, path)
-        verified_repos.append(repo)
 
 def find_android_toolchain(ndk_root: Path) -> Path:
     toolchains = list((ndk_root / "toolchains").glob("llvm/prebuilt/*"))
@@ -302,6 +295,10 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
             raise BuildException(f"Failed to find built rustls library at {libpath}!")
 
 def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
+    if config.only_curl and path.name != "curl":
+        cprint(f"Skipping build for {path.name} since --only-curl is set", Color.YELLOW)
+        return
+
     build_dir = path / "build"
     if build_dir.exists():
         shutil.rmtree(build_dir)
@@ -342,10 +339,7 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
         raise BuildException(f"Build failed for {path.name}!")
 
 
-checked_packages = False
 def build(config: BuildConfig):
-    global checked_packages
-
     tls_str = config.tls.name if config.tls else "none"
     gen_str = config.generator or "default"
     cprint(
@@ -355,12 +349,13 @@ def build(config: BuildConfig):
 
     src_dir = config.build_dir / "sources"
     out_dir = config.output_path
+    if out_dir.exists() and not config.only_curl:
+        shutil.rmtree(out_dir)
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not checked_packages:
-        print(f"Verifying or installing packages...")
-        verify_packages(src_dir, config)
-        checked_packages = True
+    print(f"Verifying or installing packages...")
+    verify_packages(src_dir, config)
 
     curl_args = []
     def add_linked_library(name: str, path: Path, libname: str | None = None):
@@ -524,6 +519,7 @@ if __name__ == "__main__":
     parser.add_argument("--toolchain", type=str, required=False, help="The CMake toolchain file to use (for cross-compilation)")
     parser.add_argument("--splat", type=str, required=False, help="Splat dir for cross-compiling to Windows, if passed, configures other cross-compilation things as well")
     parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
+    parser.add_argument("--only-curl", action="store_true", help="Only build curl, assuming the dependencies are already built and configured properly in the output directory")
 
     args = parser.parse_args()
     if not args.platform:
@@ -549,6 +545,7 @@ if __name__ == "__main__":
     config.build_dir = args.build_dir.absolute()
     config.profile = "Debug" if args.debug else "Release"
     config.flatten_output = args.flat_output
+    config.only_curl = args.only_curl
     if args.generator:
         config.generator = args.generator
     else:
