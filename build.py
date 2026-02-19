@@ -252,12 +252,6 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         outlib = install_dir / "lib" / "librustls.a"
         outlib.parent.mkdir(parents=True, exist_ok=True)
         if not x64lib.exists() or not arm64lib.exists():
-            cprint(f"No rustls lib!", Color.RED)
-            cprint(f"tmp_x64 / lib exists: {(tmp_x64 / 'lib').exists()}", Color.RED)
-            cprint(f"x64lib exists: {x64lib.exists()}", Color.RED)
-            cprint(f"tmp_arm64 / lib exists: {(tmp_arm64 / 'lib').exists()}", Color.RED)
-            cprint(f"arm64lib exists: {arm64lib.exists()}", Color.RED)
-
             raise BuildException(f"Failed to find built rustls libraries for macOS! x64: {x64lib.exists()}, arm64: {arm64lib.exists()}")
 
         lipo = shutil.which("lipo") or "lipo"
@@ -464,8 +458,8 @@ if __name__ == "__main__":
 
         if args.tls:
             config.tls = TlsBackend.from_str(args.tls)
-        config.output_path = args.output / plat
-        config.build_dir = args.build_dir
+        config.output_path = (args.output / plat).absolute()
+        config.build_dir = args.build_dir.absolute()
         config.profile = "Debug" if args.debug else "Release"
         config.generator = args.generator
 
