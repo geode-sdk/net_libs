@@ -406,7 +406,7 @@ def build(config: BuildConfig):
         "-DZSTD_LEGACY_SUPPORT=OFF",
     ])
     curl_args.append("-DCURL_ZSTD=ON")
-    add_linked_library("zstd", out_dir / "zstd")
+    add_linked_library("zstd", out_dir / "zstd", "zstd_static.lib" if config.platform == "windows" else "libzstd.a")
 
     # build zlib
     build_one(src_dir / "zlib", out_dir / "zlib", config, [
