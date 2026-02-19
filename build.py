@@ -421,6 +421,8 @@ def build(config: BuildConfig):
         "-DCURL_USE_LIBSSH2=OFF",
         "-DCURL_USE_LIBSSH=OFF",
         "-DCURL_USE_LIBPSL=OFF",
+        "-DCURL_BROTLI=OFF",
+        "-DCURL_ZLIB=OFF",
         "-DBUILD_CURL_EXE=OFF",
         "-DBUILD_SHARED_LIBS=OFF",
         "-DBUILD_STATIC_LIBS=ON",
