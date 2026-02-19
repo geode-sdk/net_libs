@@ -96,7 +96,7 @@ class BuildConfig:
             case "windows":
                 tls = TlsBackend.SChannel
             case "android32" | "android64":
-                tls = TlsBackend.OpenSSL
+                tls = TlsBackend.Rustls
                 args.append(f"-DANDROID_ABI={'arm64-v8a' if plat == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
             case "macos":
