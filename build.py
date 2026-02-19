@@ -428,6 +428,14 @@ def build(config: BuildConfig):
     curl_args.append("-DUSE_NGHTTP2=ON")
     add_linked_library("nghttp2", out_dir / "nghttp2")
 
+    # this is a tiny fix because curl tries to link nghttp2 dynamically :(
+    verfile = out_dir / "nghttp2" / "include" / "nghttp2ver.h"
+    verfiletext = verfile.read_text()
+    verfiletext = verfiletext.replace(
+        "#endif", "#define NGHTTP2_STATICLIB 1\n\n#endif"
+    )
+    verfile.write_text(verfiletext)
+
     # build curl
     build_one(src_dir / "curl", out_dir / "curl", config, curl_args + [
         "-DCURL_DISABLE_FTP=ON",
