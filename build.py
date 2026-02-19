@@ -415,7 +415,7 @@ def build(config: BuildConfig):
         "-DZLIB_BUILD_STATIC=ON",
     ])
     curl_args.append("-DCURL_ZLIB=ON")
-    add_linked_library("zlib", out_dir / "zlib", "zlib.lib" if config.platform == "windows" else "libz.a")
+    add_linked_library("zlib", out_dir / "zlib", "zs.lib" if config.platform == "windows" else "libz.a")
 
     # build nghttp2
     build_one(src_dir / "nghttp2", out_dir / "nghttp2", config, [
