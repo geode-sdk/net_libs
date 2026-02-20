@@ -634,12 +634,13 @@ def build(config: BuildConfig):
     # patch zlib to not use deprecated ucrt functions
     gzgutsfile = src_dir / "zlib" / "gzguts.h"
     gzguts = gzgutsfile.read_text()
-    gzguts = gzguts + "\n#if defined(_WIN32)\n" \
-        "# define open _open\n" \
-        "# define read _read\n" \
-        "# define write _write\n" \
-        "# define close _close\n" \
-        "#endif\n"
+    if "# define open _open" not in gzguts:
+        gzguts = gzguts + "\n#if defined(_WIN32)\n" \
+            "# define open _open\n" \
+            "# define read _read\n" \
+            "# define write _write\n" \
+            "# define close _close\n" \
+            "#endif\n"
     gzgutsfile.write_text(gzguts)
 
     # build zlib
@@ -665,9 +666,10 @@ def build(config: BuildConfig):
     # this is a tiny fix because curl tries to link nghttp2 dynamically :(
     verfile = out_dir / "nghttp2" / "include" / "nghttp2" / "nghttp2ver.h"
     verfiletext = verfile.read_text()
-    verfiletext = verfiletext.replace(
-        "#endif", "#define NGHTTP2_STATICLIB 1\n\n#endif"
-    )
+    if "#define NGHTTP2_STATICLIB 1" not in verfiletext:
+        verfiletext = verfiletext.replace(
+            "#endif", "#define NGHTTP2_STATICLIB 1\n\n#endif"
+        )
     verfile.write_text(verfiletext)
 
     # build curl
