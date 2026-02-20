@@ -33,7 +33,7 @@ OPENSSL_TAG = "openssl-3.6.1"
 
 ANDROID_SDK_VERSION = 23
 MIN_IOS_VERSION = "14.0"
-MIN_MACOS_VERSION = "10.15"
+MIN_MACOS_VERSION = "11.0"
 
 REPOS = [
     (CURL_REPO, CURL_TAG),
@@ -395,6 +395,8 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         cleanargs = [make, "distclean"]
         print(' '.join(cleanargs))
         subprocess.run(cleanargs, cwd=path, env=env, stderr=STDOUT, check=False)
+
+        args.append(f"-mmacosx-version-min={MIN_MACOS_VERSION}")
 
     # configure
     print(' '.join(args))
@@ -770,7 +772,7 @@ if __name__ == "__main__":
     config.flatten_output = args.flat_output
     config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
     config.skip_lib_verify = args.skip_lib_verify
-    config.perl_path = args.perl_path or Path(shutil.which("perl"))
+    config.perl_path = args.perl_path or Path(shutil.which("perl") or "perl")
     if args.generator:
         config.generator = args.generator
     else:
