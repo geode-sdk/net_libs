@@ -15,6 +15,7 @@ jobs:
             name: Windows
             tls: openssl
             rust-targets: x86_64-pc-windows-msvc
+            extra-args: --perl-path C:/Strawberry/perl/bin/perl.exe
 
           - os: macos-latest
             platform: macos
@@ -80,15 +81,9 @@ jobs:
         with:
           ndk-version: r29
 
-      # Windows Perl setup
-      - uses: shogo82148/actions-setup-perl@v1
-        if: matrix.platform == 'windows' && matrix.tls == 'openssl'
-        with:
-          distribution: strawberry
-
       # Build
       - name: Run build script
-        run: python build.py --platform ${{ matrix.platform }} --generator Ninja --tls ${{ matrix.tls }} --flat-output
+        run: python build.py --flat-output --generator Ninja --platform ${{ matrix.platform }} --tls ${{ matrix.tls }} ${{ matrix.extra-args }}
 
       # Upload
       - name: Upload binaries
