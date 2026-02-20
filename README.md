@@ -1,7 +1,7 @@
 # Networking Libs
 
 Build curl (v8.19.0-rc.1) with
-- TLS (Rustls v0.15.0, configurable)
+- TLS (Schannel / OpenSSL v3.6.1 / Rustls v0.15.0, configurable)
 - HTTP2 (nghttp2 v1.68.1)
 - Zlib (v1.3.2) and zstd (v1.5.7) compression
 - Async DNS (c-ares 2870f6b)
@@ -21,9 +21,7 @@ python build.py -p windows
 
 The script has many options for building, for example choosing the TLS library or the DNS backend.
 
-Using OpenSSL as the TLS backend requires it to be installed on the system.
-
-Using Rustls (default option) may require extra setup to cross-compile, besides just installing Rust and cargo-c:
+Using Rustls may require extra setup to cross-compile, besides just installing Rust and cargo-c:
 ```sh
 # for android32
 rustup target add armv7-linux-androideabi
@@ -38,6 +36,8 @@ rustup target add aarch64-apple-darwin
 # for iOS
 rustup target add aarch64-apple-ios
 ```
+
+Using OpenSSL requires Perl installed.
 
 Compilation should work out of the box for the following combinations, given that all the required tools are installed such as iOS SDK, Android NDK, etc. (host -> target)
 * Windows -> Windows, Android
