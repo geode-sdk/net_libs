@@ -334,6 +334,8 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
             raise BuildException(f"Failed to find built rustls library at {libpath}!")
 
 def build_openssl_one(path: Path, install_dir: Path, platform: str, config: BuildConfig):
+    make = shutil.which("make") or "make"
+
     # pain begins here..
     env = os.environ.copy()
     env.update(config.cmake_env)
@@ -374,7 +376,13 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     elif platform == "ios":
         env["CFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION} -fembed-bitcode-marker"
         env["LDFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}"
+    elif "macos" in platform:
+        # run make distclean before builds, otherwise first arch will mess up the second one
+        cleanargs = [make, "distclean"]
+        print(' '.join(cleanargs))
+        subprocess.run(cleanargs, cwd=path, env=env, stderr=STDOUT, check=False)
 
+    # configure
     print(' '.join(args))
     r = Popen(args, cwd=path, env=env, stderr=STDOUT).wait()
     if r != 0:
@@ -397,7 +405,6 @@ exit /b %errorlevel%
 """)
         subprocess.run(["cmd.exe", "/c", str(wrapper)], cwd=path, env=env, check=True)
     else:
-        make = shutil.which("make") or "make"
         nproc = os.cpu_count() or 1
         build_args = [make, f"-j{nproc}"]
 
@@ -485,7 +492,6 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     ).wait()
     if r != 0:
         raise BuildException(f"Build failed for {lib_name}!")
-
 
 def build(config: BuildConfig):
     tls_str = config.tls.name if config.tls else "none"
