@@ -373,7 +373,10 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         if not perl:
             raise BuildException("Perl is required to build OpenSSL on Windows but was not found in PATH or passed via --perl-path!")
 
-        args.insert(0, perl)
+        args.insert(0, str(perl))
+        perl_dir = str(perl.parent)
+        env["PATH"] = perl_dir + os.pathsep + env.get("PATH", "")
+
     elif platform == "ios":
         env["CFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION} -fembed-bitcode-marker"
         env["LDFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}"
