@@ -81,9 +81,10 @@ jobs:
           ndk-version: r29
 
       # Windows Perl setup
-      - name: Install Strawberry Perl
+      - uses: shogo82148/actions-setup-perl@v1
         if: matrix.platform == 'windows' && matrix.tls == 'openssl'
-        run: choco install strawberryperl -y
+        with:
+          distribution: strawberry
 
       - name: Add Strawberry Perl to PATH
         if: matrix.platform == 'windows' && matrix.tls == 'openssl'
