@@ -563,7 +563,6 @@ def build(config: BuildConfig):
                 raise BuildException(f"Library file for {component} (openssl) not found at {lib_path}!")
 
         curl_args.append(f"-DOPENSSL_ROOT_DIR={path}")
-        curl_args.append("-DOPENSSL_USE_STATIC_LIBS=ON")
         if config.cross_compiling():
             # :p
             curl_args.extend(("-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH", "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"))
@@ -755,7 +754,7 @@ if __name__ == "__main__":
     config.flatten_output = args.flat_output
     config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
     config.skip_lib_verify = args.skip_lib_verify
-    config.perl_path = args.perl_path or shutil.which("perl")
+    config.perl_path = args.perl_path or Path(shutil.which("perl"))
     if args.generator:
         config.generator = args.generator
     else:
