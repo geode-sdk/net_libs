@@ -535,10 +535,10 @@ def build(config: BuildConfig):
         curl_args.append(f"-D{name.upper()}_LIBRARY={lib_path}")
 
     def add_linked_library_openssl(path: Path):
+        # verify existence
         inc_path = path / 'include'
         if not inc_path.exists():
             raise BuildException(f"Include directory for openssl not found at {inc_path}!")
-        curl_args.append(f"-DOPENSSL_INCLUDE_DIR={inc_path}")
 
         libs_path = path / 'lib'
         for component in ("ssl", "crypto"):
@@ -552,7 +552,11 @@ def build(config: BuildConfig):
             if not lib_path.exists():
                 raise BuildException(f"Library file for {component} (openssl) not found at {lib_path}!")
 
-            curl_args.append(f"-DOPENSSL_{component.upper()}_LIBRARY={libs_path / libname}")
+        curl_args.append(f"-DOPENSSL_ROOT_DIR={path}")
+        curl_args.append("-DOPENSSL_USE_STATIC_LIBS=ON")
+        if 'android' in config.platform:
+            # :p
+            curl_args.extend(("-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH", "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"))
 
     # build the tls library
     if config.tls != TlsBackend.OpenSSL:
