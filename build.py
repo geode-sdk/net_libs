@@ -99,6 +99,7 @@ class BuildConfig:
     generator: str = ""
     flatten_output: bool = False
     skip_lib_verify: bool = False
+    perl_path: Path | None = None
     rebuild_whitelist: set[str] = field(default_factory=set)
     output_path: Path = field(default_factory=Path)
     build_dir: Path = field(default_factory=Path)
@@ -368,9 +369,9 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         env["PATH"] = str(toolchain / "bin") + os.pathsep + env.get("PATH", "")
         args.append(f"-D__ANDROID_API__={ANDROID_SDK_VERSION}")
     elif platform == "windows":
-        perl = shutil.which("perl")
+        perl = config.perl_path
         if not perl:
-            raise BuildException("Perl is required to build OpenSSL on Windows but was not found in PATH!")
+            raise BuildException("Perl is required to build OpenSSL on Windows but was not found in PATH or passed via --perl-path!")
 
         args.insert(0, perl)
     elif platform == "ios":
@@ -709,6 +710,7 @@ if __name__ == "__main__":
     parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
     parser.add_argument("--only", type=str, default="", help="Only rebuild the given packages, comma separated")
     parser.add_argument("--skip-lib-verify", action="store_true", help="Skip verification of git repos")
+    parser.add_argument("--perl-path", type=Path, required=False, help="The path to the Perl executable (if not in PATH)")
 
     args = parser.parse_args()
     if not args.platform:
@@ -736,6 +738,7 @@ if __name__ == "__main__":
     config.flatten_output = args.flat_output
     config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
     config.skip_lib_verify = args.skip_lib_verify
+    config.perl_path = args.perl_path or shutil.which("perl")
     if args.generator:
         config.generator = args.generator
     else:
