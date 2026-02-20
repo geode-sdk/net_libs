@@ -591,6 +591,17 @@ def build(config: BuildConfig):
             curl_args.append("-DCURL_USE_OPENSSL=ON")
             add_linked_library_openssl(out_dir / "openssl")
 
+    # patch c-ares to not use deprecated ucrt functions
+    if config.platform == "windows":
+        ares_cmake = src_dir / "c-ares" / "CMakeLists.txt"
+        cmake_text = ares_cmake.read_text()
+        for func in ("strcasecmp", "strcmpi", "strdup", "stricmp", "strncasecmp", "strncmpi", "strnicmp"):
+            cmake_text = cmake_text.replace(
+                f"CHECK_SYMBOL_EXISTS ({func}",
+                f"CHECK_SYMBOL_EXISTS (__invalid_func_{func}"
+            )
+        ares_cmake.write_text(cmake_text)
+
     # build c-ares
     if config.use_ares:
         build_one(src_dir / "c-ares", out_dir / "c-ares", config, [
@@ -703,6 +714,9 @@ def build(config: BuildConfig):
         ext = "*.lib" if config.platform == "windows" else "*.a"
         for path in config.output_path.glob(f"**/{ext}"):
             shutil.copy(path, config.output_path / path.name)
+        for path in config.output_path.glob("**/*.pdb"):
+            shutil.copy(path, config.output_path / path.name)
+
         curl_include = config.output_path / "curl" / "include"
         shutil.copytree(curl_include, config.output_path / "include", dirs_exist_ok=True)
 
