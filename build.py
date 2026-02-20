@@ -178,6 +178,16 @@ class BuildConfig:
             return False
         return True
 
+    def cross_compiling(self) -> bool:
+        name = pf.system().lower()
+        if name == "darwin":
+            return self.platform != "macos"
+        elif name == "windows":
+            return self.platform != "windows"
+        else:
+            # all other are cross compilation
+            return True
+
 def clone_package(repo: str, tag: str, path: Path):
     p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
     stdout, stderr = p.communicate()
@@ -554,7 +564,7 @@ def build(config: BuildConfig):
 
         curl_args.append(f"-DOPENSSL_ROOT_DIR={path}")
         curl_args.append("-DOPENSSL_USE_STATIC_LIBS=ON")
-        if 'android' in config.platform:
+        if config.cross_compiling():
             # :p
             curl_args.extend(("-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH", "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"))
 
