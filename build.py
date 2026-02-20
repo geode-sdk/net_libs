@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from subprocess import Popen, PIPE, STDOUT
 from enum import Enum, auto
+import subprocess
 import platform as pf
 import traceback
 import builtins
@@ -31,6 +32,8 @@ OPENSSL_REPO = "https://github.com/openssl/openssl"
 OPENSSL_TAG = "openssl-3.6.1"
 
 ANDROID_SDK_VERSION = 23
+MIN_IOS_VERSION = "14.0"
+MIN_MACOS_VERSION = "10.15"
 
 REPOS = [
     (CURL_REPO, CURL_TAG),
@@ -92,6 +95,7 @@ class BuildConfig:
     cmake_args: list[str] = field(default_factory=list)
     cmake_env: dict[str, str] = field(default_factory=dict)
     ndk_path: Path | None = None
+    sysroot: Path | None = None
     generator: str = ""
     flatten_output: bool = False
     skip_lib_verify: bool = False
@@ -104,40 +108,41 @@ class BuildConfig:
         tls: TlsBackend | None = None
         args = []
         env = {}
+        sysroot = None
 
         plat = plat.lower()
         match plat:
             case "windows":
-                tls = TlsBackend.Rustls
+                tls = TlsBackend.OpenSSL
             case "android32" | "android64":
                 tls = TlsBackend.OpenSSL
                 args.append(f"-DANDROID_ABI={'arm64-v8a' if plat == 'android64' else 'armeabi-v7a'}")
                 args.append(f"-DANDROID_PLATFORM=android-{ANDROID_SDK_VERSION}")
                 args.append("-Wno-dev") # very annoying cmake 3.10 deprecation warnings
             case "macos":
-                tls = TlsBackend.Rustls
+                tls = TlsBackend.OpenSSL
                 args.append('-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64')
-                args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15")
+                args.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MIN_MACOS_VERSION}")
             case "ios":
-                tls = TlsBackend.Rustls
+                tls = TlsBackend.OpenSSL
                 args.append('-DCMAKE_OSX_ARCHITECTURES=arm64')
-                args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0")
+                args.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MIN_IOS_VERSION}")
                 args.append("-DCMAKE_IOS_INSTALL_COMBINED=YES")
                 args.append("-DCMAKE_SYSTEM_NAME=iOS")
 
-                # find the sysroot
+                # find the sysroot and clang paths
                 xcrun = shutil.which("xcrun") or "xcrun"
-                p = Popen([xcrun, "--sdk", "iphoneos", "--show-sdk-path"], stdout=PIPE, stderr=PIPE)
-                stdout, stderr = p.communicate()
-                if p.returncode != 0:
-                    raise BuildException(f"Failed to find iOS SDK path with xcrun:\n{stdout.decode()}\n{stderr.decode()}")
+                sdk_path = subprocess.check_output([xcrun, "--sdk", "iphoneos", "--show-sdk-path"], text=True).strip()
+                cc_path = subprocess.check_output([xcrun, "--sdk", "iphoneos", "-f", "clang"], text=True).strip()
 
-                sdk_path = stdout.decode().strip()
+                sysroot = Path(sdk_path)
+                env["CC"] = cc_path
+
                 args.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
             case _:
                 raise ValueError(f"Unsupported platform: {plat}")
 
-        return cls(tls, True, plat, "Release", args, env)
+        return cls(tls, True, plat, "Release", args, env, sysroot=sysroot)
 
     def target_triple(self) -> str:
         match self.platform:
@@ -219,6 +224,32 @@ def find_android_toolchain(ndk_root: Path) -> Path:
 
     return toolchains[0]
 
+def find_vcvars() -> Path:
+    vswhere = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
+    if not vswhere.exists():
+        raise BuildException("vswhere.exe not found, is Visual Studio installed?")
+
+    result = subprocess.run(
+        [str(vswhere), "-latest", "-property", "installationPath"],
+        capture_output=True, text=True, check=True
+    )
+    path = Path(result.stdout.strip())
+    vcvars = path / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+    if not vcvars.exists():
+        raise BuildException(f"vcvars64.bat not found at expected location {vcvars}!")
+
+    return vcvars
+
+def merge_macos_libraries(arm64_path: Path, x64_path: Path, out_path: Path):
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if not arm64_path.exists() or not x64_path.exists():
+        raise BuildException(f"Cannot merge macOS libraries, one of the architectures failed to build! arm64: {arm64_path.exists()}, x64: {x64_path.exists()}")
+
+    lipo = shutil.which("lipo") or "lipo"
+    r = Popen([lipo, "-create", "-output", str(out_path), str(x64_path), str(arm64_path)], stderr=STDOUT).wait()
+    if r != 0:
+        raise BuildException(f"Failed to create universal binary with lipo for {out_path}!")
+
 def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
     if not config.should_build("rustls"):
         return
@@ -279,14 +310,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         x64lib = tmp_x64 / "lib" / "librustls.a"
         arm64lib = tmp_arm64 / "lib" / "librustls.a"
         outlib = install_dir / "lib" / "librustls.a"
-        outlib.parent.mkdir(parents=True, exist_ok=True)
-        if not x64lib.exists() or not arm64lib.exists():
-            raise BuildException(f"Failed to find built rustls libraries for macOS! x64: {x64lib.exists()}, arm64: {arm64lib.exists()}")
-
-        lipo = shutil.which("lipo") or "lipo"
-        r = Popen([lipo, "-create", "-output", str(outlib), str(x64lib), str(arm64lib)], stderr=STDOUT).wait()
-        if r != 0:
-            raise BuildException(f"Failed to create universal binary for rustls!")
+        merge_macos_libraries(arm64lib, x64lib, outlib)
 
         # copy the include dir
         shutil.copytree(tmp_x64 / "include", install_dir / "include", dirs_exist_ok=True)
@@ -309,10 +333,7 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         if not libpath.exists():
             raise BuildException(f"Failed to find built rustls library at {libpath}!")
 
-def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
-    if not config.should_build("openssl"):
-        return
-
+def build_openssl_one(path: Path, install_dir: Path, platform: str, config: BuildConfig):
     # pain begins here..
     env = os.environ.copy()
     env.update(config.cmake_env)
@@ -321,8 +342,12 @@ def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
     mapping = {
         "android32": "android-arm",
         "android64": "android-arm64",
+        "windows": "VC-WIN64A",
+        "ios": "ios64-cross",
+        "macos-x64": "darwin64-x86_64-cc",
+        "macos-arm64": "darwin64-arm64-cc",
     }
-    args.append(mapping[config.platform])
+    args.append(mapping[platform])
     args.append(f"--prefix={install_dir}")
     args.append(f"--openssldir={install_dir}/ssl")
     args.append("no-shared")
@@ -332,28 +357,90 @@ def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
     args.append("no-module")
     args.append("no-engine")
     args.append("no-async")
+    args.append("no-makedepend")
 
-    if "android" in config.platform:
+    if "android" in platform:
         assert config.ndk_path
         env["ANDROID_NDK_ROOT"] = str(config.ndk_path)
         toolchain = find_android_toolchain(config.ndk_path)
         env["PATH"] = str(toolchain / "bin") + os.pathsep + env.get("PATH", "")
         args.append(f"-D__ANDROID_API__={ANDROID_SDK_VERSION}")
+    elif platform == "windows":
+        perl = shutil.which("perl")
+        if not perl:
+            raise BuildException("Perl is required to build OpenSSL on Windows but was not found in PATH!")
+
+        args.insert(0, perl)
+    elif platform == "ios":
+        env["CFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION} -fembed-bitcode-marker"
+        env["LDFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}"
 
     print(' '.join(args))
     r = Popen(args, cwd=path, env=env, stderr=STDOUT).wait()
     if r != 0:
         raise BuildException(f"Failed to configure OpenSSL!")
 
-    make = shutil.which("nmake") if config.platform == "windows" else shutil.which("make")
-    if not make:
-        raise BuildException(f"Failed to find {'nmake' if config.platform == 'windows' else 'make'} for building OpenSSL!")
+    if platform == "windows":
+        # thought it would be that simple?
+        vcvars_path = find_vcvars()
+        wrapper = config.build_dir / "build_openssl.bat"
+        wrapper.write_text(f"""
+@echo off
+call "{vcvars_path}" >nul
+if errorlevel 1 exit /b %errorlevel%
 
-    nproc = os.cpu_count() or 1
-    r = Popen([make, f"-j{nproc}"], cwd=path, env=env, stderr=STDOUT).wait()
-    if r != 0:
-        raise BuildException(f"Failed to build OpenSSL!")
-    Popen([make, "install_sw"], cwd=path, env=env, stderr=STDOUT).wait()
+nmake
+if errorlevel 1 exit /b %errorlevel%
+
+nmake install_sw
+exit /b %errorlevel%
+""")
+        subprocess.run(["cmd.exe", "/c", str(wrapper)], cwd=path, env=env, check=True)
+    else:
+        make = shutil.which("make") or "make"
+        nproc = os.cpu_count() or 1
+        build_args = [make, f"-j{nproc}"]
+
+        print(' '.join(build_args))
+        r = Popen(build_args, cwd=path, env=env, stderr=STDOUT).wait()
+        if r != 0:
+            raise BuildException(f"Failed to build OpenSSL!")
+        Popen([make, "install_sw"], cwd=path, env=env, stderr=STDOUT).wait()
+
+def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
+    if not config.should_build("openssl"):
+        return
+
+    if config.platform != "macos":
+        return build_openssl_one(path, install_dir, config.platform, config)
+
+    # build both arm64 and x64 and create a universal binary
+    tmp_arm64 = install_dir / "tmp-ossl-arm64"
+    tmp_x64 = install_dir / "tmp-ossl-x64"
+    if tmp_arm64.exists():
+        shutil.rmtree(tmp_arm64)
+    if tmp_x64.exists():
+        shutil.rmtree(tmp_x64)
+
+    build_openssl_one(path, tmp_x64, "macos-x64", config)
+    build_openssl_one(path, tmp_arm64, "macos-arm64", config)
+
+    crypto_x64 = tmp_x64 / "lib" / "libcrypto.a"
+    crypto_arm64 = tmp_arm64 / "lib" / "libcrypto.a"
+    crypto_out = install_dir / "lib" / "libcrypto.a"
+    merge_macos_libraries(crypto_arm64, crypto_x64, crypto_out)
+
+    ssl_x64 = tmp_x64 / "lib" / "libssl.a"
+    ssl_arm64 = tmp_arm64 / "lib" / "libssl.a"
+    ssl_out = install_dir / "lib" / "libssl.a"
+    merge_macos_libraries(ssl_arm64, ssl_x64, ssl_out)
+
+    # copy the include dir
+    shutil.copytree(tmp_x64 / "include", install_dir / "include", dirs_exist_ok=True)
+
+    # delete the tmp dirs
+    shutil.rmtree(tmp_arm64)
+    shutil.rmtree(tmp_x64)
 
 def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: list[str] | None = None):
     lib_name = install_dir.name
@@ -446,7 +533,7 @@ def build(config: BuildConfig):
         libs_path = path / 'lib'
         for component in ("ssl", "crypto"):
             if config.platform == "windows":
-                libname = f"{component}.lib"
+                libname = f"lib{component}.lib"
             else:
                 libname = f"lib{component}.a"
 
