@@ -363,6 +363,8 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append(mapping[platform])
     args.append(f"--prefix={install_dir}")
     args.append(f"--openssldir={install_dir}/ssl")
+
+    # dont build things we will not use
     args.append("no-shared")
     args.append("no-docs")
     args.append("no-tests")
@@ -371,6 +373,18 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append("no-engine")
     args.append("no-async")
     args.append("no-makedepend")
+    args.append("no-deprecated")
+    args.append("no-pic")
+
+    args.append("no-ssl3")
+    args.append("no-ssl2")
+    args.append("no-comp")
+    args.append("no-idea")
+    args.append("no-md2")
+    args.append("no-rc4")
+    args.append("no-rc2")
+    args.append("no-oldssl")
+    args.append("no-fips")
 
     if "android" in platform:
         assert config.ndk_path
