@@ -377,13 +377,11 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append("no-pic")
 
     args.append("no-ssl3")
-    args.append("no-ssl2")
     args.append("no-comp")
     args.append("no-idea")
     args.append("no-md2")
     args.append("no-rc4")
     args.append("no-rc2")
-    args.append("no-oldssl")
     args.append("no-fips")
 
     if "android" in platform:
@@ -729,18 +727,32 @@ def build(config: BuildConfig):
     if config.flatten_output:
         cprint("Flattening output directory..", Color.BLUE)
 
+        include_dir = config.output_path / "include"
+        include_dir.mkdir(exist_ok=True)
+
         ext = "*.lib" if config.platform == "windows" else "*.a"
         for path in config.output_path.glob(f"**/{ext}"):
             shutil.copy(path, config.output_path / path.name)
         for path in config.output_path.glob("**/*.pdb"):
             shutil.copy(path, config.output_path / path.name)
 
-        curl_include = config.output_path / "curl" / "include"
-        shutil.copytree(curl_include, config.output_path / "include", dirs_exist_ok=True)
+        for entry in list(config.output_path.iterdir()):
+            if not entry.is_dir() or entry.name == "include":
+                continue
+            inc = entry / "include"
+            if not inc.exists() or not inc.is_dir():
+                continue
 
-        dirs = list(config.output_path.iterdir())
-        for d in dirs:
-            if d.is_dir() and d.name not in ("include",):
+            for path in inc.rglob('*'):
+                if not path.is_file():
+                    continue
+                rel_path = path.relative_to(inc)
+                dest_path = include_dir / rel_path
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest_path)
+
+        for d in list(config.output_path.iterdir()):
+            if d.name != "include" and d.is_dir():
                 shutil.rmtree(d)
 
 if __name__ == "__main__":
