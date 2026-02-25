@@ -403,7 +403,7 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         if OPENSSL_CLANG:
             env["CC"] = "clang-cl"
             env["CXX"] = "clang-cl"
-            env["CFLAGS"] = "-flto=thin"
+            # env["CFLAGS"] = "-flto=thin"
             env["AR"] = "llvm-lib"
             env["LD"] = "clang-cl"
             # clang-cl does not create a .pdb file, so let's make a dummy file so the build doesn't fail
