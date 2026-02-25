@@ -100,6 +100,7 @@ class BuildConfig:
     generator: str = ""
     flatten_output: bool = False
     skip_lib_verify: bool = False
+    lto: bool = False
     perl_path: Path | None = None
     rebuild_whitelist: set[str] = field(default_factory=set)
     output_path: Path = field(default_factory=Path)
@@ -348,10 +349,17 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
 def build_openssl_one(path: Path, install_dir: Path, platform: str, config: BuildConfig):
     make = shutil.which("make") or "make"
 
+    # run make distclean before builds, otherwise some issues may arise
+    if platform != "windows":
+        cleanargs = [make, "distclean"]
+        print(' '.join(cleanargs))
+        subprocess.run(cleanargs, cwd=path, stderr=STDOUT, check=False)
+
     # pain begins here..
     env = os.environ.copy()
     env.update(config.cmake_env)
 
+    cflags = []
     args = [str(path / "Configure")]
     mapping = {
         "android32": "android-arm",
@@ -375,7 +383,6 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append("no-async")
     args.append("no-makedepend")
     args.append("no-deprecated")
-    args.append("no-pic")
 
     args.append("no-ssl3")
     args.append("no-comp")
@@ -384,6 +391,10 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append("no-rc4")
     args.append("no-rc2")
     args.append("no-fips")
+    args.append("no-srp")
+    # required for android, otherwise we get
+    # relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'ssl_undefined_function'; recompile with -fPIC
+    args.append("enable-pic")
 
     if "android" in platform:
         assert config.ndk_path
@@ -391,6 +402,8 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         toolchain = find_android_toolchain(config.ndk_path)
         env["PATH"] = str(toolchain / "bin") + os.pathsep + env.get("PATH", "")
         args.append(f"-D__ANDROID_API__={ANDROID_SDK_VERSION}")
+        cflags.append("-Wno-macro-redefined")
+
     elif platform == "windows":
         perl = config.perl_path
         if not perl:
@@ -403,22 +416,21 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         if OPENSSL_CLANG:
             env["CC"] = "clang-cl"
             env["CXX"] = "clang-cl"
-            # env["CFLAGS"] = "-flto=thin"
             env["AR"] = "llvm-lib"
             env["LD"] = "clang-cl"
             # clang-cl does not create a .pdb file, so let's make a dummy file so the build doesn't fail
             (path / "ossl_static.pdb").touch()
 
     elif platform == "ios":
-        env["CFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION} -fembed-bitcode-marker"
+        cflags.extend(f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}".split())
         env["LDFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}"
     elif "macos" in platform:
-        # run make distclean before builds, otherwise first arch will mess up the second one
-        cleanargs = [make, "distclean"]
-        print(' '.join(cleanargs))
-        subprocess.run(cleanargs, cwd=path, env=env, stderr=STDOUT, check=False)
-
         args.append(f"-mmacosx-version-min={MIN_MACOS_VERSION}")
+
+    if config.lto:
+        cflags.append("-flto=thin")
+
+    env["CFLAGS"] = env.get("CFLAGS", "") + " " + " ".join(cflags)
 
     # configure
     print(' '.join(args))
@@ -454,7 +466,8 @@ exit /b %errorlevel%
 
         # delete the dummy pdb file
         if platform == "windows" and OPENSSL_CLANG:
-            (install_dir / "lib" / "ossl_static.pdb").unlink()
+            pdb_path = (install_dir / "lib" / "ossl_static.pdb")
+            pdb_path.unlink()
 
 def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
     if not config.should_build("openssl"):
@@ -504,6 +517,12 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     cmake_args = config.cmake_args + (extra_args if extra_args else [])
     cmake_args.append(f"-DCMAKE_INSTALL_PREFIX={install_dir}")
     cmake_args.append(f"-DCMAKE_BUILD_TYPE={config.profile}")
+    if config.lto:
+        cmake_args.append("-DCMAKE_CXX_FLAGS=-flto=thin")
+        cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
+        cmake_args.append(f"-DCMAKE_AR={shutil.which('llvm-ar') or 'llvm-ar'}")
+        cmake_args.append(f"-DCMAKE_RANLIB={shutil.which('llvm-ranlib') or 'llvm-ranlib'}")
+
     if config.generator:
         cmake_args.extend(("-G", config.generator))
     cmake_args.extend(("-S", str(path)))
@@ -716,6 +735,7 @@ def build(config: BuildConfig):
         "-DCURL_DISABLE_RTSP=ON",
         "-DCURL_DISABLE_MQTT=ON",
         "-DCURL_DISABLE_NTLM=ON",
+        "-DCURL_DISABLE_SRP=ON",
         "-DCURL_DISABLE_WEBSOCKETS=ON",
         "-DCURL_DISABLE_KERBEROS_AUTH=ON",
         "-DCURL_DISABLE_NEGOTIATE_AUTH=ON",
@@ -782,6 +802,7 @@ if __name__ == "__main__":
     parser.add_argument("--toolchain", type=str, required=False, help="The CMake toolchain file to use (for cross-compilation)")
     parser.add_argument("--splat", type=str, required=False, help="Splat dir for cross-compiling to Windows, if passed, configures other cross-compilation things as well")
     parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
+    parser.add_argument("--lto", action="store_true", help="Whether to enable LTO")
     parser.add_argument("--only", type=str, default="", help="Only rebuild the given packages, comma separated")
     parser.add_argument("--skip-lib-verify", action="store_true", help="Skip verification of git repos")
     parser.add_argument("--perl-path", type=Path, required=False, help="The path to the Perl executable (if not in PATH)")
@@ -810,6 +831,7 @@ if __name__ == "__main__":
     config.build_dir = args.build_dir.absolute()
     config.profile = "Debug" if args.debug else "Release"
     config.flatten_output = args.flat_output
+    config.lto = args.lto
     config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
     config.skip_lib_verify = args.skip_lib_verify
     config.perl_path = args.perl_path or Path(shutil.which("perl") or "perl")
