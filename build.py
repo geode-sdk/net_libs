@@ -132,20 +132,17 @@ class BuildConfig:
                 args.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MIN_IOS_VERSION}")
                 args.append("-DCMAKE_IOS_INSTALL_COMBINED=YES")
                 args.append("-DCMAKE_SYSTEM_NAME=iOS")
-
-                # find the sysroot and clang paths
-                xcrun = shutil.which("xcrun") or "xcrun"
-                sdk_path = subprocess.check_output([xcrun, "--sdk", "iphoneos", "--show-sdk-path"], text=True).strip()
-                cc_path = subprocess.check_output([xcrun, "--sdk", "iphoneos", "-f", "clang"], text=True).strip()
-
-                sysroot = Path(sdk_path)
-                env["CC"] = cc_path
-
-                args.append(f"-DCMAKE_OSX_SYSROOT={sdk_path}")
             case _:
                 raise ValueError(f"Unsupported platform: {plat}")
 
-        return cls(tls, True, plat, "Release", args, env, sysroot=sysroot)
+        ret = cls(tls, True, plat, "Release", args, env, sysroot=sysroot)
+        ret.post_setup()
+        return ret
+
+    def post_setup(self):
+        if self.platform == "ios":
+            self.cmake_env["CC"] = self.find_cc()
+            self.cmake_args.append(f"-DCMAKE_OSX_SYSROOT={self.sysroot}")
 
     def target_triple(self) -> str:
         match self.platform:
@@ -189,6 +186,60 @@ class BuildConfig:
         else:
             # all other are cross compilation
             return True
+
+    def find_cc(self) -> str:
+        return str(self._find("cc").absolute())
+
+    def find_cxx(self) -> str:
+        return str(self._find("cxx").absolute())
+
+    def find_ar(self) -> str:
+        return str(self._find("ar").absolute())
+
+    def find_ranlib(self) -> str:
+        return str(self._find("ranlib").absolute())
+
+    def find_sysroot(self) -> str:
+        return str(self._find("sysroot").absolute())
+
+    def _find(self, what: str) -> Path:
+        if "android" in self.platform:
+            assert self.ndk_path
+            toolchain = find_android_toolchain(self.ndk_path)
+            bin = toolchain / "bin"
+
+            if what == "ar" or what == "ranlib":
+                return bin / f"llvm-{what}"
+
+            triple = self.target_triple()
+            llvmtriple = triple.replace("armv7", "armv7a")
+
+            suffix = "" if what == "cc" else "++"
+            return toolchain / "bin" / f"{llvmtriple}{ANDROID_SDK_VERSION}-clang{suffix}"
+        elif self.platform == "ios" or self.platform == "macos":
+            xcrun = shutil.which("xcrun") or "xcrun"
+            sdk = "iphoneos" if self.platform == "ios" else "macosx"
+
+            if what == "sysroot":
+                return Path(subprocess.check_output([xcrun, "--sdk", sdk, "--show-sdk-path"], text=True).strip())
+            else:
+                whatmap = {
+                    "cc": "clang",
+                    "cxx": "clang++",
+                }
+                return Path(subprocess.check_output([xcrun, "--sdk", sdk, "-f", whatmap.get(what, what)], text=True).strip())
+        elif self.platform == "windows":
+            whatmap = {
+                "cc": "clang",
+                "cxx": "clang++",
+            }
+            what = whatmap.get(what, what)
+            return Path(shutil.which(what) or what)
+
+        # default, unknown
+        cprint(f"Could not find tool '{what}' for platform '{self.platform}', falling back to path-based resolution", Color.YELLOW)
+        return Path(shutil.which(what) or what)
+
 
 def clone_package(repo: str, tag: str, path: Path):
     p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
@@ -293,10 +344,9 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
         toolchain = find_android_toolchain(config.ndk_path)
 
         triple = config.target_triple()
-        llvmtriple = triple.replace("armv7", "armv7a")
-        env["CC"] = str(toolchain / "bin" / f"{llvmtriple}{ANDROID_SDK_VERSION}-clang")
-        env["CXX"] = str(toolchain / "bin" / f"{llvmtriple}{ANDROID_SDK_VERSION}-clang++")
-        env["AR"] = str(toolchain / "bin" / "llvm-ar")
+        env["CC"] = config.find_cc()
+        env["CXX"] = config.find_cxx()
+        env["AR"] = config.find_ar()
         env["CARGO_TARGET_" + triple.upper().replace("-", "_") + "_LINKER"] = env["CC"]
 
     if config.platform == "macos":
@@ -454,6 +504,11 @@ nmake install_sw
 exit /b %errorlevel%
 """)
         subprocess.run(["cmd.exe", "/c", str(wrapper)], cwd=path, env=env, check=True)
+
+        # delete the dummy pdb file
+        if OPENSSL_CLANG:
+            pdb_path = (install_dir / "lib" / "ossl_static.pdb")
+            pdb_path.unlink(True)
     else:
         nproc = os.cpu_count() or 1
         build_args = [make, f"-j{nproc}"]
@@ -463,11 +518,6 @@ exit /b %errorlevel%
         if r != 0:
             raise BuildException(f"Failed to build OpenSSL!")
         Popen([make, "install_sw"], cwd=path, env=env, stderr=STDOUT).wait()
-
-        # delete the dummy pdb file
-        if platform == "windows" and OPENSSL_CLANG:
-            pdb_path = (install_dir / "lib" / "ossl_static.pdb")
-            pdb_path.unlink()
 
 def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
     if not config.should_build("openssl"):
@@ -517,11 +567,12 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     cmake_args = config.cmake_args + (extra_args if extra_args else [])
     cmake_args.append(f"-DCMAKE_INSTALL_PREFIX={install_dir}")
     cmake_args.append(f"-DCMAKE_BUILD_TYPE={config.profile}")
+
     if config.lto:
         cmake_args.append("-DCMAKE_CXX_FLAGS=-flto=thin")
         cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
-        cmake_args.append(f"-DCMAKE_AR={shutil.which('llvm-ar') or 'llvm-ar'}")
-        cmake_args.append(f"-DCMAKE_RANLIB={shutil.which('llvm-ranlib') or 'llvm-ranlib'}")
+        cmake_args.append(f"-DCMAKE_AR={config.find_ar()}")
+        cmake_args.append(f"-DCMAKE_RANLIB={config.find_ranlib()}")
 
     if config.generator:
         cmake_args.extend(("-G", config.generator))
