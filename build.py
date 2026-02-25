@@ -230,9 +230,10 @@ class BuildConfig:
                 return Path(subprocess.check_output([xcrun, "--sdk", sdk, "-f", whatmap.get(what, what)], text=True).strip())
         elif self.platform == "windows":
             whatmap = {
-                "cc": "clang",
-                "cxx": "clang++",
+                "cc": "clang-cl",
+                "cxx": "clang-cl",
                 "ar": "llvm-lib",
+                "ranlib": "llvm-lib",
             }
             what = whatmap.get(what, what)
             return Path(shutil.which(what) or what)
@@ -342,7 +343,6 @@ def build_rustls(path: Path, install_dir: Path, config: BuildConfig):
     env.update(config.cmake_env)
     if "android" in config.platform:
         assert config.ndk_path and config.ndk_path.exists(), "NDK path must be specified and exist for Android builds!"
-        toolchain = find_android_toolchain(config.ndk_path)
 
         triple = config.target_triple()
         env["CC"] = config.find_cc()
@@ -574,6 +574,12 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
         cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
         cmake_args.append(f"-DCMAKE_AR={config.find_ar()}")
         cmake_args.append(f"-DCMAKE_RANLIB={config.find_ranlib()}")
+
+    if config.platform == "windows":
+        # use clang-cl
+        cmake_args.extend(("-T", "ClangCL"))
+        cmake_args.append(f"-DCMAKE_C_COMPILER={config.find_cc()}")
+        cmake_args.append(f"-DCMAKE_CXX_COMPILER={config.find_cxx()}")
 
     if config.generator:
         cmake_args.extend(("-G", config.generator))
