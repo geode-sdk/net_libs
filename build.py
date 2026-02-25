@@ -232,6 +232,7 @@ class BuildConfig:
             whatmap = {
                 "cc": "clang",
                 "cxx": "clang++",
+                "ar": "llvm-lib",
             }
             what = whatmap.get(what, what)
             return Path(shutil.which(what) or what)
