@@ -111,7 +111,6 @@ class BuildConfig:
         tls: TlsBackend | None = None
         args = []
         env = {}
-        sysroot = None
 
         plat = plat.lower()
         match plat:
@@ -135,12 +134,13 @@ class BuildConfig:
             case _:
                 raise ValueError(f"Unsupported platform: {plat}")
 
-        ret = cls(tls, True, plat, "Release", args, env, sysroot=sysroot)
+        ret = cls(tls, True, plat, "Release", args, env)
         ret.post_setup()
         return ret
 
     def post_setup(self):
         if self.platform == "ios":
+            self.sysroot = self._find("sysroot")
             self.cmake_env["CC"] = self.find_cc()
             self.cmake_args.append(f"-DCMAKE_OSX_SYSROOT={self.sysroot}")
 
