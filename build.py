@@ -34,6 +34,7 @@ OPENSSL_TAG = "openssl-3.6.1"
 ANDROID_SDK_VERSION = 23
 MIN_IOS_VERSION = "14.0"
 MIN_MACOS_VERSION = "11.0"
+OPENSSL_CLANG = True
 
 REPOS = [
     (CURL_REPO, CURL_TAG),
@@ -399,6 +400,15 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         perl_dir = str(perl.parent)
         env["PATH"] = perl_dir + os.pathsep + env.get("PATH", "")
 
+        if OPENSSL_CLANG:
+            env["CC"] = "clang-cl"
+            env["CXX"] = "clang-cl"
+            env["CFLAGS"] = "-flto=thin"
+            env["AR"] = "llvm-lib"
+            env["LD"] = "clang-cl"
+            # clang-cl does not create a .pdb file, so let's make a dummy file so the build doesn't fail
+            (path / "ossl_static.pdb").touch()
+
     elif platform == "ios":
         env["CFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION} -fembed-bitcode-marker"
         env["LDFLAGS"] = f"-isysroot {config.sysroot} -arch arm64 -mios-version-min={MIN_IOS_VERSION}"
@@ -441,6 +451,10 @@ exit /b %errorlevel%
         if r != 0:
             raise BuildException(f"Failed to build OpenSSL!")
         Popen([make, "install_sw"], cwd=path, env=env, stderr=STDOUT).wait()
+
+        # delete the dummy pdb file
+        if platform == "windows" and OPENSSL_CLANG:
+            (install_dir / "lib" / "ossl_static.pdb").unlink()
 
 def build_openssl(path: Path, install_dir: Path, config: BuildConfig):
     if not config.should_build("openssl"):
