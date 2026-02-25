@@ -65,6 +65,9 @@ def print(*args, **kwargs):
     kwargs.setdefault("flush", True)
     _orig_print(*args, **kwargs)
 
+def strpath(p: Path):
+    return str(p.absolute()).replace("\\", "/")
+
 class TlsBackend(Enum):
     OpenSSL = auto()
     SChannel = auto()
@@ -188,19 +191,19 @@ class BuildConfig:
             return True
 
     def find_cc(self) -> str:
-        return str(self._find("cc").absolute())
+        return strpath(self._find("cc"))
 
     def find_cxx(self) -> str:
-        return str(self._find("cxx").absolute())
+        return strpath(self._find("cxx"))
 
     def find_ar(self) -> str:
-        return str(self._find("ar").absolute())
+        return strpath(self._find("ar"))
 
     def find_ranlib(self) -> str:
-        return str(self._find("ranlib").absolute())
+        return strpath(self._find("ranlib"))
 
     def find_sysroot(self) -> str:
-        return str(self._find("sysroot").absolute())
+        return strpath(self._find("sysroot"))
 
     def _find(self, what: str) -> Path:
         if "android" in self.platform:
@@ -572,13 +575,13 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     if config.lto:
         cmake_args.append("-DCMAKE_CXX_FLAGS=-flto=thin")
         cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
-        cmake_args.append(f"-DCMAKE_AR={config.find_ar()}")
-        cmake_args.append(f"-DCMAKE_RANLIB={config.find_ranlib()}")
+        cmake_args.append(f"-DCMAKE_AR=\"{config.find_ar()}\"")
+        cmake_args.append(f"-DCMAKE_RANLIB=\"{config.find_ranlib()}\"")
 
     if config.platform == "windows":
         # use clang-cl
-        cmake_args.append(f"-DCMAKE_C_COMPILER={config.find_cc()}")
-        cmake_args.append(f"-DCMAKE_CXX_COMPILER={config.find_cxx()}")
+        cmake_args.append(f"-DCMAKE_C_COMPILER=\"{config.find_cc()}\"")
+        cmake_args.append(f"-DCMAKE_CXX_COMPILER=\"{config.find_cxx()}\"")
         cmake_args.append(f"-DCMAKE_LINKER=lld-link")
 
     if config.generator:
