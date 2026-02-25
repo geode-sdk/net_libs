@@ -577,9 +577,9 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
 
     if config.platform == "windows":
         # use clang-cl
-        cmake_args.extend(("-T", "ClangCL"))
         cmake_args.append(f"-DCMAKE_C_COMPILER={config.find_cc()}")
         cmake_args.append(f"-DCMAKE_CXX_COMPILER={config.find_cxx()}")
+        cmake_args.append(f"-DCMAKE_LINKER=lld-link")
 
     if config.generator:
         cmake_args.extend(("-G", config.generator))
