@@ -575,13 +575,13 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     if config.lto:
         cmake_args.append("-DCMAKE_CXX_FLAGS=-flto=thin")
         cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
-        cmake_args.append(f"-DCMAKE_AR=\"{config.find_ar()}\"")
-        cmake_args.append(f"-DCMAKE_RANLIB=\"{config.find_ranlib()}\"")
+        cmake_args.append(f"-DCMAKE_AR={config.find_ar()}")
+        cmake_args.append(f"-DCMAKE_RANLIB={config.find_ranlib()}")
 
     if config.platform == "windows":
         # use clang-cl
-        cmake_args.append(f"-DCMAKE_C_COMPILER=\"{config.find_cc()}\"")
-        cmake_args.append(f"-DCMAKE_CXX_COMPILER=\"{config.find_cxx()}\"")
+        cmake_args.append(f"-DCMAKE_C_COMPILER={config.find_cc()}")
+        cmake_args.append(f"-DCMAKE_CXX_COMPILER={config.find_cxx()}")
         cmake_args.append(f"-DCMAKE_LINKER=lld-link")
 
     if config.generator:
