@@ -60,12 +60,6 @@ jobs:
       - name: Install CMake & Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Install LLVM
-        if: matrix.platform == 'windows'
-        uses: egor-tensin/setup-clang@v2
-        with:
-          version: 21
-
       - name: Install Rust
         if: matrix.tls == 'rustls'
         uses: dtolnay/rust-toolchain@stable
