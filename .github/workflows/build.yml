@@ -15,7 +15,7 @@ jobs:
             name: Windows
             tls: openssl
             rust-targets: x86_64-pc-windows-msvc
-            extra-args: --perl-path C:/Strawberry/perl/bin/perl.exe
+            extra-args: --perl-path C:/Strawberry/perl/bin/perl.exe --lto
 
           - os: macos-latest
             platform: macos
@@ -34,12 +34,14 @@ jobs:
             name: Android (32-bit)
             tls: openssl
             rust-targets: armv7-linux-androideabi
+            extra-args: --lto
 
           - os: ubuntu-latest
             platform: android64
             name: Android (64-bit)
             tls: openssl
             rust-targets: aarch64-linux-android
+            extra-args: --lto
 
     runs-on: ${{ matrix.os }}
     name: Build ${{ matrix.name }}
@@ -83,7 +85,7 @@ jobs:
 
       # Build
       - name: Run build script
-        run: python build.py --generator Ninja --flat-output --lto --platform ${{ matrix.platform }} --tls ${{ matrix.tls }} ${{ matrix.extra-args }}
+        run: python build.py --generator Ninja --flat-output --platform ${{ matrix.platform }} --tls ${{ matrix.tls }} ${{ matrix.extra-args }}
 
       # Upload
       - name: Upload binaries
