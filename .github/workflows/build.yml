@@ -79,7 +79,7 @@ jobs:
 
       # Build
       - name: Run build script
-        run: python build.py --generator Ninja --flat-output --platform ${{ matrix.platform }} --tls ${{ matrix.tls }} ${{ matrix.extra-args }}
+        run: python build.py --generator Ninja --flat-output --platform ${{ matrix.platform }} --tls ${{ matrix.tls }} --quic ${{ matrix.extra-args }}
 
       # Upload
       - name: Upload binaries

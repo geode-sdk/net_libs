@@ -104,6 +104,7 @@ class BuildConfig:
     flatten_output: bool = False
     skip_lib_verify: bool = False
     lto: bool = False
+    quic: bool = False
     perl_path: Path | None = None
     rebuild_whitelist: set[str] = field(default_factory=set)
     output_path: Path = field(default_factory=Path)
@@ -247,7 +248,7 @@ class BuildConfig:
 
 
 def clone_package(repo: str, tag: str, path: Path):
-    p = Popen(["git", "clone", "--no-checkout", repo, str(path)], stdout=PIPE, stderr=PIPE)
+    p = Popen(["git", "clone", "--no-checkout", "--recurse-submodules", repo, str(path)], stdout=PIPE, stderr=PIPE)
     stdout, stderr = p.communicate()
     if p.returncode != 0:
         raise BuildException(f"Failed to clone {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
@@ -264,6 +265,12 @@ def verify_package(repo: str, tag: str, path: Path):
     if p.returncode != 0:
         raise BuildException(f"Failed to checkout {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
 
+    # update submodules
+    p = Popen(["git", "submodule", "update", "--init", "--recursive"], cwd=path, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = p.communicate()
+    if p.returncode != 0:
+        raise BuildException(f"Failed to update submodules for {repo} at tag {tag}:\n{stdout.decode()}\n{stderr.decode()}")
+
 def verify_packages(parent: Path, config: BuildConfig):
     for (repo, tag) in REPOS:
         name = repo.rpartition("/")[-1]
@@ -275,6 +282,8 @@ def verify_packages(parent: Path, config: BuildConfig):
                 is_enabled = config.use_ares
             case "openssl":
                 is_enabled = config.tls == TlsBackend.OpenSSL
+            case "nghttp3" | "ngtcp2":
+                is_enabled = config.quic
 
         if not is_enabled:
             continue
@@ -652,7 +661,7 @@ def build(config: BuildConfig):
         curl_args.append(f"-D{name.upper()}_INCLUDE_DIR={inc_path}")
         curl_args.append(f"-D{name.upper()}_LIBRARY={lib_path}")
 
-    def add_linked_library_openssl(path: Path):
+    def add_linked_library_openssl(path: Path, into = curl_args):
         # verify existence
         inc_path = path / 'include'
         if not inc_path.exists():
@@ -670,10 +679,10 @@ def build(config: BuildConfig):
             if not lib_path.exists():
                 raise BuildException(f"Library file for {component} (openssl) not found at {lib_path}!")
 
-        curl_args.append(f"-DOPENSSL_ROOT_DIR={path}")
+        into.append(f"-DOPENSSL_ROOT_DIR={path}")
         if config.cross_compiling():
             # :p
-            curl_args.extend(("-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH", "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"))
+            into.extend(("-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH", "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"))
 
     # build the tls library
     if config.tls != TlsBackend.OpenSSL:
@@ -780,6 +789,30 @@ def build(config: BuildConfig):
         )
     verfile.write_text(verfiletext)
 
+    # if quic is enabled, build ngtcp2 and nghttp3
+    if config.quic:
+        base_args = [
+            "-DENABLE_LIB_ONLY=ON",
+            "-DENABLE_EXAMPLES=OFF",
+            "-DBUILD_TESTING=OFF",
+            "-DENABLE_SHARED_LIB=OFF",
+            "-DENABLE_STATIC_LIB=ON"
+        ]
+        ngtcp2_args = base_args.copy()
+        match config.tls:
+            case TlsBackend.OpenSSL:
+                ngtcp2_args.append("-DUSE_OPENSSL=ON")
+                add_linked_library_openssl(out_dir / "openssl", ngtcp2_args)
+            case _:
+                raise BuildException("QUIC currently requires OpenSSL")
+
+        build_one(src_dir / "ngtcp2", out_dir / "ngtcp2", config, ngtcp2_args)
+        curl_args.append("-DUSE_NGTCP2=ON")
+        add_linked_library("ngtcp2", out_dir / "ngtcp2")
+
+        build_one(src_dir / "nghttp3", out_dir / "nghttp3", config, base_args)
+        add_linked_library("nghttp3", out_dir / "nghttp3")
+
     # build curl
     build_one(src_dir / "curl", out_dir / "curl", config, curl_args + [
         "-DCURL_DISABLE_FTP=ON",
@@ -864,6 +897,7 @@ if __name__ == "__main__":
     parser.add_argument("--splat", type=str, required=False, help="Splat dir for cross-compiling to Windows, if passed, configures other cross-compilation things as well")
     parser.add_argument("--flat-output", action="store_true", help="Only keep the output library files and curl includes at the end")
     parser.add_argument("--lto", action="store_true", help="Whether to enable LTO")
+    parser.add_argument("--quic", action="store_true", help="Whether to enable QUIC and HTTP/3")
     parser.add_argument("--only", type=str, default="", help="Only rebuild the given packages, comma separated")
     parser.add_argument("--skip-lib-verify", action="store_true", help="Skip verification of git repos")
     parser.add_argument("--perl-path", type=Path, required=False, help="The path to the Perl executable (if not in PATH)")
@@ -893,6 +927,7 @@ if __name__ == "__main__":
     config.profile = "Debug" if args.debug else "Release"
     config.flatten_output = args.flat_output
     config.lto = args.lto
+    config.quic = args.quic
     config.rebuild_whitelist = set(args.only.split(",")) if args.only else set()
     config.skip_lib_verify = args.skip_lib_verify
     config.perl_path = args.perl_path or Path(shutil.which("perl") or "perl")
