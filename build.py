@@ -813,6 +813,23 @@ def build(config: BuildConfig):
         build_one(src_dir / "nghttp3", out_dir / "nghttp3", config, base_args)
         add_linked_library("nghttp3", out_dir / "nghttp3")
 
+        # same fix for ngtcp2 as for nghttp2
+        verfile = out_dir / "ngtcp2" / "include" / "ngtcp2" / "version.h"
+        verfiletext = verfile.read_text()
+        if "#define NGTCP2_STATICLIB 1" not in verfiletext:
+            verfiletext = verfiletext.replace(
+                "#endif", "#define NGTCP2_STATICLIB 1\n\n#endif"
+            )
+        verfile.write_text(verfiletext)
+
+        verfile = out_dir / "nghttp3" / "include" / "nghttp3" / "version.h"
+        verfiletext = verfile.read_text()
+        if "#define NGHTTP3_STATICLIB 1" not in verfiletext:
+            verfiletext = verfiletext.replace(
+                "#endif", "#define NGHTTP3_STATICLIB 1\n\n#endif"
+            )
+        verfile.write_text(verfiletext)
+
     # build curl
     build_one(src_dir / "curl", out_dir / "curl", config, curl_args + [
         "-DCURL_DISABLE_FTP=ON",
