@@ -13,13 +13,13 @@ import time
 import os
 
 CURL_REPO = "https://github.com/curl/curl"
-CURL_TAG = "rc-8_19_0-1"
+CURL_TAG = "curl-8_19_0"
 CARES_REPO = "https://github.com/c-ares/c-ares"
 CARES_TAG = "2870f6b"
 NGHTTP2_REPO = "https://github.com/nghttp2/nghttp2"
 NGHTTP2_TAG = "v1.68.0"
 NGTCP2_REPO = "https://github.com/ngtcp2/ngtcp2"
-NGTCP2_TAG = "v1.20.0"
+NGTCP2_TAG = "v1.21.0"
 NGHTTP3_REPO = "https://github.com/ngtcp2/nghttp3"
 NGHTTP3_TAG = "v1.15.0"
 ZSTD_REPO = "https://github.com/facebook/zstd"
