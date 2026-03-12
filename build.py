@@ -437,24 +437,20 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     args.append(f"--openssldir={install_dir}/ssl")
 
     # dont build things we will not use
-    args.append("no-shared")
-    args.append("no-docs")
-    args.append("no-tests")
-    args.append("no-apps")
-    args.append("no-module")
-    args.append("no-engine")
-    args.append("no-async")
-    args.append("no-makedepend")
-    args.append("no-deprecated")
+    args.extend((
+        "no-shared", "no-docs", "no-tests", "no-apps",
+        "no-module", "no-engine", "no-async",
+        "no-makedepend", "no-deprecated", "no-filenames", "no-ui-console"
+    ))
 
-    args.append("no-ssl3")
-    args.append("no-comp")
-    args.append("no-idea")
-    args.append("no-md2")
-    args.append("no-rc4")
-    args.append("no-rc2")
-    args.append("no-fips")
-    args.append("no-srp")
+    args.extend((
+        "no-aria", "no-bf", "no-blake2", "no-camellia", "no-cast",
+        "no-des", "no-idea", "no-md2", "no-md4", "no-rc2", "no-rc4", "no-rc5",
+        "no-rmd160", "no-seed", "no-sm2", "no-sm3", "no-sm4", "no-whirlpool",
+        "no-sctp", "no-srtp", "no-ssl-trace", "no-weak-ssl-ciphers", "no-nextprotoneg",
+        "no-fips", "no-srp", "no-ssl3", "no-comp", "no-cmp", "no-cms",
+        "no-krb5kdf", "no-snmpkdf", "no-sshkdf", "no-x942kdf",
+    ))
     # required for android, otherwise we get
     # relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'ssl_undefined_function'; recompile with -fPIC
     args.append("enable-pic")
