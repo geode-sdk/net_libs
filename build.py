@@ -449,7 +449,6 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         "no-rmd160", "no-seed", "no-sm2", "no-sm3", "no-sm4", "no-whirlpool",
         "no-sctp", "no-srtp", "no-ssl-trace", "no-weak-ssl-ciphers", "no-nextprotoneg",
         "no-fips", "no-srp", "no-ssl3", "no-comp", "no-cmp", "no-cms",
-        "no-krb5kdf", "no-snmpkdf", "no-sshkdf", "no-x942kdf",
     ))
     # required for android, otherwise we get
     # relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'ssl_undefined_function'; recompile with -fPIC
@@ -577,11 +576,15 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
     cmake_args.append(f"-DCMAKE_INSTALL_PREFIX={install_dir}")
     cmake_args.append(f"-DCMAKE_BUILD_TYPE={config.profile}")
 
+    cflags = []
+
     if config.lto:
-        cmake_args.append("-DCMAKE_CXX_FLAGS=-flto=thin")
-        cmake_args.append("-DCMAKE_C_FLAGS=-flto=thin")
+        cflags.append("-flto=thin")
         cmake_args.append(f"-DCMAKE_AR={config.find_ar()}")
         cmake_args.append(f"-DCMAKE_RANLIB={config.find_ranlib()}")
+
+    if config.profile == "Release":
+        cflags.append("-DNDEBUG")
 
     if config.platform == "windows":
         # use clang-cl
@@ -593,6 +596,11 @@ def build_one(path: Path, install_dir: Path, config: BuildConfig, extra_args: li
         cmake_args.extend(("-G", config.generator))
     cmake_args.extend(("-S", str(path)))
     cmake_args.extend(("-B", str(build_dir)))
+
+    if cflags:
+        joined = " ".join(cflags)
+        cmake_args.append(f"-DCMAKE_CXX_FLAGS={joined}")
+        cmake_args.append(f"-DCMAKE_C_FLAGS={joined}")
 
     cmake = shutil.which("cmake") or "cmake"
     env = os.environ.copy()
