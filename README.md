@@ -10,7 +10,7 @@ Build curl (v8.22.0) with
 ## Cloning
 
 ```
-git clone --recurse-submodules -j$(nproc) https://github.com/geode-sdk/net_libs
+git clone https://github.com/geode-sdk/net_libs
 ```
 
 ## Build notes
