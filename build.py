@@ -13,23 +13,23 @@ import time
 import os
 
 CURL_REPO = "https://github.com/curl/curl"
-CURL_TAG = "curl-8_19_0"
+CURL_TAG = "curl-8_22_0"
 CARES_REPO = "https://github.com/c-ares/c-ares"
-CARES_TAG = "2870f6b"
+CARES_TAG = "v1.34.8"
 NGHTTP2_REPO = "https://github.com/nghttp2/nghttp2"
-NGHTTP2_TAG = "v1.68.0"
+NGHTTP2_TAG = "v1.70.0"
 NGTCP2_REPO = "https://github.com/ngtcp2/ngtcp2"
-NGTCP2_TAG = "v1.21.0"
+NGTCP2_TAG = "v1.25.0"
 NGHTTP3_REPO = "https://github.com/ngtcp2/nghttp3"
-NGHTTP3_TAG = "v1.15.0"
+NGHTTP3_TAG = "v1.18.0"
 ZSTD_REPO = "https://github.com/facebook/zstd"
 ZSTD_TAG = "v1.5.7"
 RUSTLS_REPO = "https://github.com/rustls/rustls-ffi"
-RUSTLS_TAG = "v0.15.0"
+RUSTLS_TAG = "v0.15.4"
 ZLIB_REPO = "https://github.com/madler/zlib"
 ZLIB_TAG = "v1.3.2"
 OPENSSL_REPO = "https://github.com/openssl/openssl"
-OPENSSL_TAG = "openssl-3.6.1"
+OPENSSL_TAG = "openssl-4.0.3"
 
 ANDROID_SDK_VERSION = 23
 MIN_IOS_VERSION = "14.0"
@@ -864,6 +864,7 @@ def build(config: BuildConfig):
         "-DUSE_APPLE_IDN=OFF",
         "-DUSE_WIN32_IDN=OFF",
         "-DUSE_LIBIDN2=OFF",
+        "-DUSE_ECH=ON",
         "-DBUILD_CURL_EXE=OFF",
         "-DBUILD_SHARED_LIBS=OFF",
         "-DBUILD_STATIC_LIBS=ON",
