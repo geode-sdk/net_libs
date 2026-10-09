@@ -439,8 +439,7 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
     # dont build things we will not use
     args.extend((
         "no-shared", "no-docs", "no-tests", "no-apps",
-        "no-module", "no-engine", "no-async",
-        "no-makedepend", "no-deprecated", "no-filenames", "no-ui-console"
+        "no-module", "no-async", "no-makedepend", "no-deprecated", "no-filenames", "no-ui-console"
     ))
 
     args.extend((
@@ -448,7 +447,7 @@ def build_openssl_one(path: Path, install_dir: Path, platform: str, config: Buil
         "no-des", "no-idea", "no-md2", "no-md4", "no-rc2", "no-rc4", "no-rc5",
         "no-rmd160", "no-seed", "no-sm2", "no-sm3", "no-sm4", "no-whirlpool",
         "no-sctp", "no-srtp", "no-ssl-trace", "no-weak-ssl-ciphers", "no-nextprotoneg",
-        "no-fips", "no-srp", "no-ssl3", "no-comp", "no-cmp", "no-cms",
+        "no-fips", "no-srp", "no-comp", "no-cmp", "no-cms",
     ))
     # required for android, otherwise we get
     # relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'ssl_undefined_function'; recompile with -fPIC
@@ -844,13 +843,10 @@ def build(config: BuildConfig):
         "-DCURL_DISABLE_GOPHER=ON",
         "-DCURL_DISABLE_POP3=ON",
         "-DCURL_DISABLE_IMAP=ON",
-        "-DCURL_DISABLE_SMB=ON",
         "-DCURL_DISABLE_SMTP=ON",
         "-DCURL_DISABLE_IPFS=ON",
         "-DCURL_DISABLE_RTSP=ON",
         "-DCURL_DISABLE_MQTT=ON",
-        "-DCURL_DISABLE_NTLM=ON",
-        "-DCURL_DISABLE_SRP=ON",
         "-DCURL_DISABLE_WEBSOCKETS=ON",
         "-DCURL_DISABLE_KERBEROS_AUTH=ON",
         "-DCURL_DISABLE_NEGOTIATE_AUTH=ON",
